@@ -1,9 +1,16 @@
 [project]
 name = "zendesk-mcp-server"
 version = "0.1.0"
-description = "A model context protocol server for Zendesk"
+description = "A simple Zendesk MCP server"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "mcp>=1.1.2",
 ]
+
+[build-system]
+requires = [ "hatchling",]
+build-backend = "hatchling.build"
+
+[project.scripts]
+zendesk = "zendesk_mcp_server:main"
