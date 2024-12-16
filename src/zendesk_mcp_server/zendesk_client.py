@@ -1,4 +1,5 @@
 from typing import Dict, Any, List
+
 from zenpy import Zenpy
 from zenpy.lib.api_objects import Ticket, Comment
 
@@ -14,12 +15,24 @@ class ZendeskClient:
             token=token
         )
 
-    def get_ticket(self, ticket_id: int) -> Ticket:
+    def get_ticket(self, ticket_id: int) -> Dict[str, Any]:
         """
-        Get a ticket by its ID.
+        Query a ticket by its ID
         """
         try:
-            return self.client.tickets(id=ticket_id)
+            ticket = self.client.tickets(id=ticket_id)
+            return {
+                'id': ticket.id,
+                'subject': ticket.subject,
+                'description': ticket.description,
+                'status': ticket.status,
+                'priority': ticket.priority,
+                'created_at': str(ticket.created_at),
+                'updated_at': str(ticket.updated_at),
+                'requester_id': ticket.requester_id,
+                'assignee_id': ticket.assignee_id,
+                'organization_id': ticket.organization_id
+            }
         except Exception as e:
             raise Exception(f"Failed to get ticket {ticket_id}: {str(e)}")
 
@@ -38,8 +51,7 @@ class ZendeskClient:
                 'created_at': str(comment.created_at)
             } for comment in comments]
         except Exception as e:
-            raise Exception(f"Failed to get comments for ticket {
-                            ticket_id}: {str(e)}")
+            raise Exception(f"Failed to get comments for ticket {ticket_id}: {str(e)}")
 
     def create_ticket_comment(self, ticket_id: int, comment: str, public: bool = True) -> str:
         """

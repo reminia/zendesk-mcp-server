@@ -1,4 +1,10 @@
-def main():
-  print("Hello, world!")
+import asyncio
 
-__all__ = ["main"]
+from . import server
+
+
+def main():
+    asyncio.run(server.main())
+
+
+__all__ = ["main", "server"]

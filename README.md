@@ -2,6 +2,26 @@
 
 A Model Context Protocol server for Zendesk.
 
+You can leverage this server to query Zendesk tickets and  reply to user queries quickly with claude.ai.
+
+## Setup in Claude desktop
+
+```json
+{
+  "mcpServers": {
+      "zendesk": {
+          "command": "uv",
+          "args": [
+              "--directory",
+              "/path/to/zendesk-mcp-server",
+              "run",
+              "zendesk"
+          ]
+      }
+  }
+}
+```
+
 ## Tools
 
 ### get_ticket

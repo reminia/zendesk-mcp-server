@@ -8,4 +8,9 @@ wheels/
 
 # Virtual environments
 .venv
+
+# Intellij Idea files
+.idea/
+
 .env
+

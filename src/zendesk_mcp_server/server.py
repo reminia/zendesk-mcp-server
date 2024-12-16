@@ -1,11 +1,14 @@
-from mcp.server import Server, types
-from dotenv import load_dotenv
-from typing import Any
-import os
+import asyncio
 import json
-from zendesk_mcp_server.zendesk_client import ZendeskClient
+import os
+from typing import Any
 
-server = Server("Zendesk Server")
+from dotenv import load_dotenv
+from mcp.server import InitializationOptions, NotificationOptions
+from mcp.server import Server, types
+from mcp.server.stdio import stdio_server
+
+from zendesk_mcp_server.zendesk_client import ZendeskClient
 
 load_dotenv()
 
@@ -14,6 +17,8 @@ zendesk_client = ZendeskClient(
     email=os.getenv("ZENDESK_EMAIL"),
     token=os.getenv("ZENDESK_API_KEY")
 )
+
+server = Server("Zendesk Server")
 
 
 @server.list_tools()
@@ -76,8 +81,8 @@ async def handle_list_tools() -> list[types.Tool]:
 
 @server.call_tool()
 async def handle_call_tool(
-    name: str,
-    arguments: dict[str, Any] | None
+        name: str,
+        arguments: dict[str, Any] | None
 ) -> list[types.TextContent]:
     """Handle Zendesk tool execution requests"""
     try:
@@ -119,3 +124,24 @@ async def handle_call_tool(
             type="text",
             text=f"Error: {str(e)}"
         )]
+
+
+async def main():
+    # Run the server using stdin/stdout streams
+    async with stdio_server() as (read_stream, write_stream):
+        await server.run(
+            read_stream=read_stream,
+            write_stream=write_stream,
+            initialization_options=InitializationOptions(
+                server_name="Zendesk",
+                server_version="0.1.0",
+                capabilities=server.get_capabilities(
+                    notification_options=NotificationOptions(),
+                    experimental_capabilities={},
+                ),
+            ),
+        )
+
+
+if __name__ == "__main__":
+    asyncio.run(main())
