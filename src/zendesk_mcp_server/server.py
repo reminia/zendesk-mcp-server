@@ -1,7 +1,8 @@
 import asyncio
 import json
+import logging
 import os
-from typing import Any
+from typing import Any, Dict
 
 from dotenv import load_dotenv
 from mcp.server import InitializationOptions, NotificationOptions
@@ -10,8 +11,10 @@ from mcp.server.stdio import stdio_server
 
 from zendesk_mcp_server.zendesk_client import ZendeskClient
 
-load_dotenv()
+logger = logging.getLogger("zendesk-mcp-server")
+logger.info("Starting zendesk mcp server")
 
+load_dotenv()
 zendesk_client = ZendeskClient(
     subdomain=os.getenv("ZENDESK_SUBDOMAIN"),
     email=os.getenv("ZENDESK_EMAIL"),
@@ -19,6 +22,117 @@ zendesk_client = ZendeskClient(
 )
 
 server = Server("Zendesk Server")
+
+TICKET_ANALYSIS_TEMPLATE = """
+You are a helpful Zendesk support analyst. You've been asked to analyze ticket #{ticket_id}.
+
+Here is the ticket information:
+{ticket_info}
+
+And here are the ticket comments:
+{comments}
+
+Please analyze this ticket and provide:
+1. A summary of the issue
+2. The current status and timeline
+3. Key points of interaction
+
+Remember to be professional and focus on actionable insights.
+"""
+
+COMMENT_DRAFT_TEMPLATE = """
+You are a helpful Zendesk support agent. You need to draft a response to ticket #{ticket_id}.
+
+Here is the ticket information:
+{ticket_info}
+
+Previous comments:
+{comments}
+
+Please draft a professional and helpful response that:
+1. Acknowledges the customer's concern
+2. Addresses the specific issues raised
+3. Provides clear next steps or ask for specific details need to proceed
+4. Maintains a friendly and professional tone
+5. Ask for confirmation before commenting on the ticket
+
+The response should be formatted in HTML and ready to be posted as a comment.
+"""
+
+
+@server.list_prompts()
+async def handle_list_prompts() -> list[types.Prompt]:
+    """List available prompts"""
+    return [
+        types.Prompt(
+            name="analyze-ticket",
+            description="Analyze a Zendesk ticket and provide insights",
+            arguments=[
+                types.PromptArgument(
+                    name="ticket_id",
+                    description="The ID of the ticket to analyze",
+                    required=True,
+                )
+            ],
+        ),
+        types.Prompt(
+            name="draft-ticket-response",
+            description="Draft a professional response to a Zendesk ticket",
+            arguments=[
+                types.PromptArgument(
+                    name="ticket_id",
+                    description="The ID of the ticket to respond to",
+                    required=True,
+                )
+            ],
+        )
+    ]
+
+
+@server.get_prompt()
+async def handle_get_prompt(name: str, arguments: Dict[str, str] | None) -> types.GetPromptResult:
+    """Handle prompt requests"""
+    if not arguments or "ticket_id" not in arguments:
+        raise ValueError("Missing required argument: ticket_id")
+
+    ticket_id = int(arguments["ticket_id"])
+
+    try:
+        ticket_info = zendesk_client.get_ticket(ticket_id)
+        comments = zendesk_client.get_ticket_comments(ticket_id)
+
+        if name == "analyze-ticket":
+            prompt = TICKET_ANALYSIS_TEMPLATE.format(
+                ticket_id=ticket_id,
+                ticket_info=ticket_info,
+                comments=comments
+            )
+            description = f"Analysis prompt for ticket #{ticket_id}"
+
+        elif name == "draft-ticket-response":
+            prompt = COMMENT_DRAFT_TEMPLATE.format(
+                ticket_id=ticket_id,
+                ticket_info=ticket_info,
+                comments=comments
+            )
+            description = f"Response draft prompt for ticket #{ticket_id}"
+
+        else:
+            raise ValueError(f"Unknown prompt: {name}")
+
+        return types.GetPromptResult(
+            description=description,
+            messages=[
+                types.PromptMessage(
+                    role="user",
+                    content=types.TextContent(type="text", text=prompt.strip()),
+                )
+            ],
+        )
+
+    except Exception as e:
+        logger.error(f"Error generating prompt: {e}")
+        raise
 
 
 @server.list_tools()
