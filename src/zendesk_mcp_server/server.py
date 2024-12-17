@@ -26,13 +26,7 @@ server = Server("Zendesk Server")
 TICKET_ANALYSIS_TEMPLATE = """
 You are a helpful Zendesk support analyst. You've been asked to analyze ticket #{ticket_id}.
 
-Here is the ticket information:
-{ticket_info}
-
-And here are the ticket comments:
-{comments}
-
-Please analyze this ticket and provide:
+Please fetch the ticket info and comments to analyze it and provide:
 1. A summary of the issue
 2. The current status and timeline
 3. Key points of interaction
@@ -43,20 +37,14 @@ Remember to be professional and focus on actionable insights.
 COMMENT_DRAFT_TEMPLATE = """
 You are a helpful Zendesk support agent. You need to draft a response to ticket #{ticket_id}.
 
-Here is the ticket information:
-{ticket_info}
-
-Previous comments:
-{comments}
-
-Please draft a professional and helpful response that:
+Please fetch the ticket info and comments to draft a professional and helpful response that:
 1. Acknowledges the customer's concern
 2. Addresses the specific issues raised
 3. Provides clear next steps or ask for specific details need to proceed
 4. Maintains a friendly and professional tone
 5. Ask for confirmation before commenting on the ticket
 
-The response should be formatted in HTML and ready to be posted as a comment.
+The response should be formatted well and ready to be posted as a comment.
 """
 
 
@@ -96,24 +84,16 @@ async def handle_get_prompt(name: str, arguments: Dict[str, str] | None) -> type
         raise ValueError("Missing required argument: ticket_id")
 
     ticket_id = int(arguments["ticket_id"])
-
     try:
-        ticket_info = zendesk_client.get_ticket(ticket_id)
-        comments = zendesk_client.get_ticket_comments(ticket_id)
-
         if name == "analyze-ticket":
             prompt = TICKET_ANALYSIS_TEMPLATE.format(
-                ticket_id=ticket_id,
-                ticket_info=ticket_info,
-                comments=comments
+                ticket_id=ticket_id
             )
             description = f"Analysis prompt for ticket #{ticket_id}"
 
         elif name == "draft-ticket-response":
             prompt = COMMENT_DRAFT_TEMPLATE.format(
-                ticket_id=ticket_id,
-                ticket_info=ticket_info,
-                comments=comments
+                ticket_id=ticket_id
             )
             description = f"Response draft prompt for ticket #{ticket_id}"
 
