@@ -2,8 +2,11 @@
 
 A Model Context Protocol server for Zendesk.
 
-This server provides tools, prompts to analyze or respond to a zendesk ticket.
-Also, it provides access to the Zendesk Help Center articles as a knowledge base resource.
+This server provides a comprehensive integration with Zendesk. It offers:
+
+- Tools for retrieving and managing Zendesk tickets and comments
+- Specialized prompts for ticket analysis and response drafting
+- Full access to the Zendesk Help Center articles as knowledge base
 
 ## Setup
 
@@ -27,13 +30,17 @@ Also, it provides access to the Zendesk Help Center articles as a knowledge base
 }
 ```
 
+## Resources
+
+- zendesk://knowledge-base, get access to the whole help center articles.
+
 ## Prompts
 
 ### analyze-ticket
 
 Analyze a Zendesk ticket and provide a detailed analysis of the ticket.
 
-### draft-ticket-response
+### draft-ticket-respons
 
 Draft a response to a Zendesk ticket.
 
