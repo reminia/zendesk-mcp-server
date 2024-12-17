@@ -4,7 +4,12 @@ A Model Context Protocol server for Zendesk.
 
 You can leverage this server to query Zendesk tickets and  reply to user queries quickly with claude.ai.
 
-## Setup in Claude desktop
+## Setup
+
+- build: `uv pip install -e .`
+- setup zendesk credentials in `.env` file, refer to [.env.example](.env.example)
+
+### Config in Claude desktop
 
 ```json
 {
