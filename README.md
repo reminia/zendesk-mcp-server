@@ -2,7 +2,8 @@
 
 A Model Context Protocol server for Zendesk.
 
-You can leverage this server to query Zendesk tickets and reply to user queries quickly with claude.ai.
+This server provides tools, prompts to analyze or respond to a zendesk ticket.
+Also, it provides access to the Zendesk Help Center articles as a knowledge base resource.
 
 ## Setup
 
