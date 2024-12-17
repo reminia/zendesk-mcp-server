@@ -1,7 +1,7 @@
 from typing import Dict, Any, List
 
 from zenpy import Zenpy
-from zenpy.lib.api_objects import Ticket, Comment
+from zenpy.lib.api_objects import Comment
 
 
 class ZendeskClient:
@@ -67,3 +67,31 @@ class ZendeskClient:
             return comment
         except Exception as e:
             raise Exception(f"Failed to create comment on ticket {ticket_id}: {str(e)}")
+
+    def get_knowledge_base(self) -> Dict[str, Any]:
+        """
+        Fetch help center articles as knowledge base
+        """
+        try:
+            # Get all sections
+            sections = self.client.help_center.sections()
+
+            # Get articles for each section
+            kb = {}
+            for section in sections:
+                articles = self.client.help_center.sections.articles(section.id)
+                kb[section.name] = {
+                    'section_id': section.id,
+                    'description': section.description,
+                    'articles': [{
+                        'id': article.id,
+                        'title': article.title,
+                        'body': article.body,
+                        'updated_at': str(article.updated_at),
+                        'url': article.html_url
+                    } for article in articles]
+                }
+
+            return kb
+        except Exception as e:
+            raise Exception(f"Failed to fetch knowledge base: {str(e)}")

@@ -4,10 +4,12 @@ import logging
 import os
 from typing import Any, Dict
 
+from cachetools.func import ttl_cache
 from dotenv import load_dotenv
 from mcp.server import InitializationOptions, NotificationOptions
 from mcp.server import Server, types
 from mcp.server.stdio import stdio_server
+from pydantic import AnyUrl
 
 from zendesk_mcp_server.zendesk_client import ZendeskClient
 
@@ -37,7 +39,7 @@ Remember to be professional and focus on actionable insights.
 COMMENT_DRAFT_TEMPLATE = """
 You are a helpful Zendesk support agent. You need to draft a response to ticket #{ticket_id}.
 
-Please fetch the ticket info and comments to draft a professional and helpful response that:
+Please fetch the ticket info, comments and knowledge base to draft a professional and helpful response that:
 1. Acknowledges the customer's concern
 2. Addresses the specific issues raised
 3. Provides clear next steps or ask for specific details need to proceed
@@ -218,6 +220,50 @@ async def handle_call_tool(
             type="text",
             text=f"Error: {str(e)}"
         )]
+
+
+@server.list_resources()
+async def handle_list_resources() -> list[types.Resource]:
+    logger.debug("Handling list_resources request")
+    return [
+        types.Resource(
+            uri=AnyUrl("zendesk://knowledge-base"),
+            name="Zendesk Knowledge Base",
+            description="Access to Zendesk Help Center articles and sections",
+            mimeType="application/json",
+        )
+    ]
+
+
+@ttl_cache(ttl=3600)
+def get_cached_kb():
+    return zendesk_client.get_knowledge_base()
+
+
+@server.read_resource()
+async def handle_read_resource(uri: AnyUrl) -> str:
+    logger.debug(f"Handling read_resource request for URI: {uri}")
+    if uri.scheme != "zendesk":
+        logger.error(f"Unsupported URI scheme: {uri.scheme}")
+        raise ValueError(f"Unsupported URI scheme: {uri.scheme}")
+
+    path = str(uri).replace("zendesk://", "")
+    if path != "knowledge-base":
+        logger.error(f"Unknown resource path: {path}")
+        raise ValueError(f"Unknown resource path: {path}")
+
+    try:
+        kb_data = get_cached_kb()
+        return json.dumps({
+            "knowledge_base": kb_data,
+            "metadata": {
+                "sections": len(kb_data),
+                "total_articles": sum(len(section['articles']) for section in kb_data.values()),
+            }
+        }, indent=2)
+    except Exception as e:
+        logger.error(f"Error fetching knowledge base: {e}")
+        raise
 
 
 async def main():
