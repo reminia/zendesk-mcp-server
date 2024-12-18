@@ -68,9 +68,10 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to create comment on ticket {ticket_id}: {str(e)}")
 
-    def get_knowledge_base(self) -> Dict[str, Any]:
+    def get_all_articles(self) -> Dict[str, Any]:
         """
-        Fetch help center articles as knowledge base
+        Fetch help center articles as knowledge base.
+        Returns a Dict of section -> [article].
         """
         try:
             # Get all sections

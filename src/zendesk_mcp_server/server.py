@@ -237,7 +237,7 @@ async def handle_list_resources() -> list[types.Resource]:
 
 @ttl_cache(ttl=3600)
 def get_cached_kb():
-    return zendesk_client.get_knowledge_base()
+    return zendesk_client.get_all_articles()
 
 
 @server.read_resource()
