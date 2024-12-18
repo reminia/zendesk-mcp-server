@@ -12,7 +12,7 @@ This server provides a comprehensive integration with Zendesk. It offers:
 
 ## Setup
 
-- build: `uv pip install -e .`
+- build: `uv venv && uv pip install -e .` or `uv build` in short.
 - setup zendesk credentials in `.env` file, refer to [.env.example](.env.example).
 - configure in Claude desktop:
 
