@@ -22,6 +22,5 @@ jobs:
       - name: Set up Python
         run: uv python install
 
-      - name: Build & Install the package
-        run: |
-          uv pip install -e .
+      - name: Build the project
+        run: uv build
