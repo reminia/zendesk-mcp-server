@@ -1,5 +1,7 @@
 # Zendesk MCP Server
 
+![ci](https://github.com/reminia/zendesk-mcp-server/actions/workflows/ci.yml/badge.svg)
+
 A Model Context Protocol server for Zendesk.
 
 This server provides a comprehensive integration with Zendesk. It offers:
