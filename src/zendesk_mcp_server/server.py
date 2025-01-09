@@ -207,7 +207,7 @@ async def handle_call_tool(
 
         elif name == "create_ticket_comment":
             public = arguments.get("public", True)
-            result = zendesk_client.create_ticket_comment(
+            result = zendesk_client.post_comment(
                 ticket_id=arguments["ticket_id"],
                 comment=arguments["comment"],
                 public=public

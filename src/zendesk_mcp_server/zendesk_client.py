@@ -53,9 +53,9 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to get comments for ticket {ticket_id}: {str(e)}")
 
-    def create_ticket_comment(self, ticket_id: int, comment: str, public: bool = True) -> str:
+    def post_comment(self, ticket_id: int, comment: str, public: bool = True) -> str:
         """
-        Create a comment for an existing ticket.
+        Post a comment to an existing ticket.
         """
         try:
             ticket = self.client.tickets(id=ticket_id)
@@ -66,7 +66,7 @@ class ZendeskClient:
             self.client.tickets.update(ticket)
             return comment
         except Exception as e:
-            raise Exception(f"Failed to create comment on ticket {ticket_id}: {str(e)}")
+            raise Exception(f"Failed to post comment on ticket {ticket_id}: {str(e)}")
 
     def get_all_articles(self) -> Dict[str, Any]:
         """

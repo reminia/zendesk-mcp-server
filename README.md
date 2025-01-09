@@ -11,6 +11,8 @@ This server provides a comprehensive integration with Zendesk. It offers:
 - Specialized prompts for ticket analysis and response drafting
 - Full access to the Zendesk Help Center articles as knowledge base
 
+![demo](https://res.cloudinary.com/leecy-me/image/upload/v1736410626/open/zendesk_yunczu.gif)
+
 ## Setup
 
 - build: `uv venv && uv pip install -e .` or `uv build` in short.
