@@ -13,8 +13,13 @@ from pydantic import AnyUrl
 
 from zendesk_mcp_server.zendesk_client import ZendeskClient
 
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 logger = logging.getLogger("zendesk-mcp-server")
-logger.info("Starting zendesk mcp server")
+logger.info("zendesk mcp server started")
 
 load_dotenv()
 zendesk_client = ZendeskClient(
