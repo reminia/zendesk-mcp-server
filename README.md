@@ -2,6 +2,7 @@
 
 ![ci](https://github.com/reminia/zendesk-mcp-server/actions/workflows/ci.yml/badge.svg)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+[![smithery badge](https://smithery.ai/badge/zendesk-mcp-server)](https://smithery.ai/server/zendesk-mcp-server)
 
 A Model Context Protocol server for Zendesk.
 
@@ -15,6 +16,15 @@ This server provides a comprehensive integration with Zendesk. It offers:
 
 ## Setup
 
+### Installing via Smithery
+
+To install Zendesk MCP Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/zendesk-mcp-server):
+
+```bash
+npx -y @smithery/cli install zendesk-mcp-server --client claude
+```
+
+### Manual Installation
 - build: `uv venv && uv pip install -e .` or `uv build` in short.
 - setup zendesk credentials in `.env` file, refer to [.env.example](.env.example).
 - configure in Claude desktop:
