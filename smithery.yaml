@@ -1,0 +1,25 @@
+# Smithery configuration file: https://smithery.ai/docs/config#smitheryyaml
+
+startCommand:
+  type: stdio
+  configSchema:
+    # JSON Schema defining the configuration options for the MCP.
+    type: object
+    required:
+      - zendeskDomain
+      - zendeskEmail
+      - zendeskApiToken
+    properties:
+      zendeskDomain:
+        type: string
+        description: The Zendesk domain for API access.
+      zendeskEmail:
+        type: string
+        description: The email used for Zendesk API authentication.
+      zendeskApiToken:
+        type: string
+        description: The API token for Zendesk authentication.
+  commandFunction:
+    # A function that produces the CLI command to start the MCP on stdio.
+    |-
+    (config) => ({ command: 'uv', args: ['run', 'zendesk'], env: { ZENDESK_DOMAIN: config.zendeskDomain, ZENDESK_EMAIL: config.zendeskEmail, ZENDESK_API_TOKEN: config.zendeskApiToken } })
