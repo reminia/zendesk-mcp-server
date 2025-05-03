@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/reminia-zendesk-mcp-server-badge.png)](https://mseep.ai/app/reminia-zendesk-mcp-server)
+
 # Zendesk MCP Server
 
 ![ci](https://github.com/reminia/zendesk-mcp-server/actions/workflows/ci.yml/badge.svg)
