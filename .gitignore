@@ -9,8 +9,9 @@ wheels/
 # Virtual environments
 .venv
 
-# Intellij Idea files
+# IDE files
 .idea/
+.vscode/
 
 .env
 .env.prod
