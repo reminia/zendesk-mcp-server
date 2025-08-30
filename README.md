@@ -51,6 +51,18 @@ Draft a response to a Zendesk ticket.
 
 ## Tools
 
+### get_tickets
+
+Fetch the latest tickets with pagination support
+
+- Input:
+  - `page` (integer, optional): Page number (defaults to 1)
+  - `per_page` (integer, optional): Number of tickets per page, max 100 (defaults to 25)
+  - `sort_by` (string, optional): Field to sort by - created_at, updated_at, priority, or status (defaults to created_at)
+  - `sort_order` (string, optional): Sort order - asc or desc (defaults to desc)
+
+- Output: Returns a list of tickets with essential fields including id, subject, status, priority, description, timestamps, and assignee information, along with pagination metadata
+
 ### get_ticket
 
 Retrieve a Zendesk ticket by its ID
