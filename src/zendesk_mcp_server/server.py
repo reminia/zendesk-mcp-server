@@ -141,6 +141,36 @@ async def handle_list_tools() -> list[types.Tool]:
             }
         ),
         types.Tool(
+            name="get_tickets",
+            description="Fetch the latest tickets with pagination support",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "page": {
+                        "type": "integer",
+                        "description": "Page number",
+                        "default": 1
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "description": "Number of tickets per page (max 100)",
+                        "default": 25
+                    },
+                    "sort_by": {
+                        "type": "string",
+                        "description": "Field to sort by (created_at, updated_at, priority, status)",
+                        "default": "created_at"
+                    },
+                    "sort_order": {
+                        "type": "string",
+                        "description": "Sort order (asc or desc)",
+                        "default": "desc"
+                    }
+                },
+                "required": []
+            }
+        ),
+        types.Tool(
             name="get_ticket_comments",
             description="Retrieve all comments for a Zendesk ticket by its ID",
             inputSchema={
@@ -187,17 +217,35 @@ async def handle_call_tool(
 ) -> list[types.TextContent]:
     """Handle Zendesk tool execution requests"""
     try:
-        if not arguments:
-            raise ValueError("Missing arguments")
-
         if name == "get_ticket":
+            if not arguments:
+                raise ValueError("Missing arguments")
             ticket = zendesk_client.get_ticket(arguments["ticket_id"])
             return [types.TextContent(
                 type="text",
                 text=json.dumps(ticket)
             )]
 
+        elif name == "get_tickets":
+            page = arguments.get("page", 1) if arguments else 1
+            per_page = arguments.get("per_page", 25) if arguments else 25
+            sort_by = arguments.get("sort_by", "created_at") if arguments else "created_at"
+            sort_order = arguments.get("sort_order", "desc") if arguments else "desc"
+
+            tickets = zendesk_client.get_tickets(
+                page=page,
+                per_page=per_page,
+                sort_by=sort_by,
+                sort_order=sort_order
+            )
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(tickets, indent=2)
+            )]
+
         elif name == "get_ticket_comments":
+            if not arguments:
+                raise ValueError("Missing arguments")
             comments = zendesk_client.get_ticket_comments(
                 arguments["ticket_id"])
             return [types.TextContent(
@@ -206,6 +254,8 @@ async def handle_call_tool(
             )]
 
         elif name == "create_ticket_comment":
+            if not arguments:
+                raise ValueError("Missing arguments")
             public = arguments.get("public", True)
             result = zendesk_client.post_comment(
                 ticket_id=arguments["ticket_id"],
