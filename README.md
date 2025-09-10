@@ -45,7 +45,7 @@ This server provides a comprehensive integration with Zendesk. It offers:
 
 Analyze a Zendesk ticket and provide a detailed analysis of the ticket.
 
-### draft-ticket-respons
+### draft-ticket-response
 
 Draft a response to a Zendesk ticket.
 
