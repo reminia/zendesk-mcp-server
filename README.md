@@ -85,3 +85,33 @@ Create a new comment on an existing Zendesk ticket
   - `ticket_id` (integer): The ID of the ticket to comment on
   - `comment` (string): The comment text/content to add
   - `public` (boolean, optional): Whether the comment should be public (defaults to true)
+
+### create_ticket
+
+Create a new Zendesk ticket
+
+- Input:
+  - `subject` (string): Ticket subject
+  - `description` (string): Ticket description
+  - `requester_id` (integer, optional)
+  - `assignee_id` (integer, optional)
+  - `priority` (string, optional): one of `low`, `normal`, `high`, `urgent`
+  - `type` (string, optional): one of `problem`, `incident`, `question`, `task`
+  - `tags` (array[string], optional)
+  - `custom_fields` (array[object], optional)
+
+### update_ticket
+
+Update fields on an existing Zendesk ticket (e.g., status, priority, assignee)
+
+- Input:
+  - `ticket_id` (integer): The ID of the ticket to update
+  - `subject` (string, optional)
+  - `status` (string, optional): one of `new`, `open`, `pending`, `on-hold`, `solved`, `closed`
+  - `priority` (string, optional): one of `low`, `normal`, `high`, `urgent`
+  - `type` (string, optional)
+  - `assignee_id` (integer, optional)
+  - `requester_id` (integer, optional)
+  - `tags` (array[string], optional)
+  - `custom_fields` (array[object], optional)
+  - `due_at` (string, optional): ISO8601 datetime

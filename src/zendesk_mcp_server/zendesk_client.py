@@ -6,6 +6,7 @@ import base64
 
 from zenpy import Zenpy
 from zenpy.lib.api_objects import Comment
+from zenpy.lib.api_objects import Ticket as ZenpyTicket
 
 
 class ZendeskClient:
@@ -180,3 +181,104 @@ class ZendeskClient:
             return kb
         except Exception as e:
             raise Exception(f"Failed to fetch knowledge base: {str(e)}")
+
+    def create_ticket(
+        self,
+        subject: str,
+        description: str,
+        requester_id: int | None = None,
+        assignee_id: int | None = None,
+        priority: str | None = None,
+        type: str | None = None,
+        tags: List[str] | None = None,
+        custom_fields: List[Dict[str, Any]] | None = None,
+    ) -> Dict[str, Any]:
+        """
+        Create a new Zendesk ticket using Zenpy and return essential fields.
+
+        Args:
+            subject: Ticket subject
+            description: Ticket description (plain text). Will also be used as initial comment.
+            requester_id: Optional requester user ID
+            assignee_id: Optional assignee user ID
+            priority: Optional priority (low, normal, high, urgent)
+            type: Optional ticket type (problem, incident, question, task)
+            tags: Optional list of tags
+            custom_fields: Optional list of dicts: {id: int, value: Any}
+        """
+        try:
+            ticket = ZenpyTicket(
+                subject=subject,
+                description=description,
+                requester_id=requester_id,
+                assignee_id=assignee_id,
+                priority=priority,
+                type=type,
+                tags=tags,
+                custom_fields=custom_fields,
+            )
+            created_audit = self.client.tickets.create(ticket)
+            # Fetch created ticket id from audit
+            created_ticket_id = getattr(getattr(created_audit, 'ticket', None), 'id', None)
+            if created_ticket_id is None:
+                # Fallback: try to read id from audit events
+                created_ticket_id = getattr(created_audit, 'id', None)
+
+            # Fetch full ticket to return consistent data
+            created = self.client.tickets(id=created_ticket_id) if created_ticket_id else None
+
+            return {
+                'id': getattr(created, 'id', created_ticket_id),
+                'subject': getattr(created, 'subject', subject),
+                'description': getattr(created, 'description', description),
+                'status': getattr(created, 'status', 'new'),
+                'priority': getattr(created, 'priority', priority),
+                'type': getattr(created, 'type', type),
+                'created_at': str(getattr(created, 'created_at', '')),
+                'updated_at': str(getattr(created, 'updated_at', '')),
+                'requester_id': getattr(created, 'requester_id', requester_id),
+                'assignee_id': getattr(created, 'assignee_id', assignee_id),
+                'organization_id': getattr(created, 'organization_id', None),
+                'tags': list(getattr(created, 'tags', tags or []) or []),
+            }
+        except Exception as e:
+            raise Exception(f"Failed to create ticket: {str(e)}")
+
+    def update_ticket(self, ticket_id: int, **fields: Any) -> Dict[str, Any]:
+        """
+        Update a Zendesk ticket with provided fields using Zenpy.
+
+        Supported fields include common ticket attributes like:
+        subject, status, priority, type, assignee_id, requester_id,
+        tags (list[str]), custom_fields (list[dict]), due_at, etc.
+        """
+        try:
+            # Load the ticket, mutate fields directly, and update
+            ticket = self.client.tickets(id=ticket_id)
+            for key, value in fields.items():
+                if value is None:
+                    continue
+                setattr(ticket, key, value)
+
+            # This call returns a TicketAudit (not a Ticket). Don't read attrs from it.
+            self.client.tickets.update(ticket)
+
+            # Fetch the fresh ticket to return consistent data
+            refreshed = self.client.tickets(id=ticket_id)
+
+            return {
+                'id': refreshed.id,
+                'subject': refreshed.subject,
+                'description': refreshed.description,
+                'status': refreshed.status,
+                'priority': refreshed.priority,
+                'type': getattr(refreshed, 'type', None),
+                'created_at': str(refreshed.created_at),
+                'updated_at': str(refreshed.updated_at),
+                'requester_id': refreshed.requester_id,
+                'assignee_id': refreshed.assignee_id,
+                'organization_id': refreshed.organization_id,
+                'tags': list(getattr(refreshed, 'tags', []) or []),
+            }
+        except Exception as e:
+            raise Exception(f"Failed to update ticket {ticket_id}: {str(e)}")
