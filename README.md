@@ -35,6 +35,51 @@ This server provides a comprehensive integration with Zendesk. It offers:
 }
 ```
 
+### Docker
+
+You can containerize the server if you prefer an isolated runtime:
+
+1. Copy `.env.example` to `.env` and fill in your Zendesk credentials. Keep this file outside version control.
+2. Build the image:
+
+   ```bash
+   docker build -t zendesk-mcp-server .
+   ```
+
+3. Run the server, providing the environment file:
+
+   ```bash
+   docker run --rm --env-file /path/to/.env zendesk-mcp-server
+   ```
+
+   Add `-i` when wiring the container to MCP clients over STDIN/STDOUT (Claude Code uses this mode). For daemonized runs, add `-d --name zendesk-mcp`.
+
+The image installs dependencies from `requirements.lock`, drops privileges to a non-root user, and expects configuration exclusively via environment variables.
+
+#### Claude MCP Integration
+
+To use the Dockerized server from Claude Code/Desktop, add an entry to Claude Code's `settings.json` similar to:
+
+```json
+{
+  "mcpServers": {
+    "zendesk": {
+      "command": "/usr/local/bin/docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "--env-file",
+        "/path/to/zendesk-mcp-server/.env",
+        "zendesk-mcp-server"
+      ]
+    }
+  }
+}
+```
+
+Adjust the paths to match your environment. After saving the file, restart Claude for the new MCP server to be detected.
+
 ## Resources
 
 - zendesk://knowledge-base, get access to the whole help center articles.
