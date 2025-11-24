@@ -10,7 +10,7 @@ from zenpy.lib.api_objects import Ticket as ZenpyTicket
 
 
 class ZendeskClient:
-    def __init__(self, subdomain: str, email: str, token: str, locale: str = "en-us"):
+    def __init__(self, subdomain: str, email: str, token: str, locale: str):
         """
         Initialize the Zendesk client using zenpy lib and direct API.
         """
