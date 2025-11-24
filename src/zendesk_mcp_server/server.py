@@ -25,7 +25,8 @@ load_dotenv()
 zendesk_client = ZendeskClient(
     subdomain=os.getenv("ZENDESK_SUBDOMAIN"),
     email=os.getenv("ZENDESK_EMAIL"),
-    token=os.getenv("ZENDESK_API_KEY")
+    token=os.getenv("ZENDESK_API_KEY"),
+    locale=os.getenv("ZENDESK_LOCALE", "en-us")
 )
 
 server = Server("Zendesk Server")
