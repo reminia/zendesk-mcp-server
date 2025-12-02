@@ -47,7 +47,7 @@ See `.env.example` for the template.
 The server implements three MCP primitives:
 
 - **Tools**: Direct API operations including:
-  - Tickets: `get_ticket`, `get_ticket_comments`, `create_ticket_comment`
+  - Tickets: `get_ticket`, `get_multiple_tickets`, `get_ticket_comments`, `create_ticket_comment`
   - Knowledge Base: `search_kb_articles`, `get_kb_article`, `list_kb_sections`, `get_section_articles`
   - Attachments: `get_attachment`
   - Macros: `search_macros`, `get_macro`, `apply_macro_to_ticket`
@@ -129,6 +129,33 @@ The server supports Zendesk macros for automated ticket actions:
 **Testing:**
 - `test_search_macros.py` - Tests search and get operations
 - `test_apply_macro.py` - Interactive script for applying macros to tickets
+
+### Bulk Ticket Retrieval
+
+The server supports retrieving multiple tickets in a single API call:
+
+- **Get multiple tickets**: Use `get_multiple_tickets(ticket_ids)` to fetch up to 100 tickets at once
+- **Efficient for batch operations**: Customer service staff can review multiple tickets simultaneously
+- **Full ticket data**: Returns complete ticket information including custom fields, tags, and metadata
+
+**Important Implementation Notes:**
+
+1. **Accepts array of ticket IDs**: Pass a list of integers `[123, 456, 789]` instead of calling single ticket endpoint multiple times
+2. **Maximum 100 tickets per call**: Zendesk API limitation - requests exceeding 100 tickets will be rejected
+3. **Direct HTTP requests pattern**: Uses the `/api/v2/tickets/show_many.json?ids={ids}` endpoint via authenticated session:
+   ```python
+   ids_param = ','.join(str(tid) for tid in ticket_ids)
+   url = f"https://{self.client.tickets.base_url}/api/v2/tickets/show_many.json?ids={ids_param}"
+   response = self.client.tickets.session.get(url, timeout=self.client.tickets.timeout)
+   ```
+   
+**Use Cases:**
+- Batch ticket review workflows for customer service teams
+- Bulk ticket analysis and reporting
+- Multi-ticket operations when Claude Desktop doesn't support parallel tool calls
+
+**Testing:**
+- `test_get_multiple_tickets.py` - Interactive script for testing bulk ticket retrieval
 
 ## Common Pitfalls & Solutions
 
