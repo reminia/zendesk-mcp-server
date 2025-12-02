@@ -48,6 +48,62 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to get ticket {ticket_id}: {str(e)}")
 
+    def get_multiple_tickets(self, ticket_ids: List[int]) -> List[Dict[str, Any]]:
+        """
+        Query multiple tickets by their IDs (up to 100 tickets).
+        Ref: https://developer.zendesk.com/api-reference/ticketing/tickets/tickets/#show-multiple-tickets
+
+        Args:
+            ticket_ids: List of ticket IDs to retrieve
+
+        Returns:
+            List of ticket dictionaries with full ticket data
+        """
+        try:
+            if not ticket_ids:
+                raise ValueError("ticket_ids list cannot be empty")
+
+            if len(ticket_ids) > 100:
+                raise ValueError("Cannot retrieve more than 100 tickets at once")
+
+            # Convert list to comma-separated string
+            import urllib.parse
+            ids_param = ','.join(str(tid) for tid in ticket_ids)
+            encoded_ids = urllib.parse.quote(ids_param)
+
+            # Construct the URL using the show_many endpoint
+            url = f"https://{self.client.tickets.base_url}/api/v2/tickets/show_many.json?ids={encoded_ids}"
+
+            # Use the session to make the request
+            response = self.client.tickets.session.get(url, timeout=self.client.tickets.timeout)
+            response.raise_for_status()
+            data = response.json()
+
+            tickets = []
+            for ticket in data.get('tickets', []):
+                # Use same simplified fields as get_ticket() for consistency
+                ticket_dict = {
+                    'id': ticket.get('id'),
+                    'subject': ticket.get('subject'),
+                    'description': ticket.get('description'),
+                    'status': ticket.get('status'),
+                    'priority': ticket.get('priority'),
+                    'created_at': ticket.get('created_at'),
+                    'updated_at': ticket.get('updated_at'),
+                    'requester_id': ticket.get('requester_id'),
+                    'assignee_id': ticket.get('assignee_id'),
+                    'organization_id': ticket.get('organization_id')
+                }
+                tickets.append(ticket_dict)
+
+            logger.info(f"Retrieved {len(tickets)} tickets from IDs: {ticket_ids}")
+            return tickets
+        except ValueError as ve:
+            raise ve
+        except Exception as e:
+            logger.error(f"Failed to get multiple tickets {ticket_ids}: {str(e)}")
+            raise Exception(f"Failed to get multiple tickets: {str(e)}")
+
     def get_ticket_comments(self, ticket_id: int, include_inline_images: bool = False) -> List[Dict[str, Any]]:
         """
         Get all comments for a specific ticket.

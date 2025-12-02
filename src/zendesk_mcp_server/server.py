@@ -149,6 +149,25 @@ async def handle_list_tools() -> list[types.Tool]:
             }
         ),
         types.Tool(
+            name="get_multiple_tickets",
+            description="Retrieve multiple Zendesk tickets by their IDs (up to 100 tickets in one call)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ticket_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "integer"
+                        },
+                        "description": "Array of ticket IDs to retrieve (max 100)",
+                        "minItems": 1,
+                        "maxItems": 100
+                    }
+                },
+                "required": ["ticket_ids"]
+            }
+        ),
+        types.Tool(
             name="get_ticket_comments",
             description="Retrieve all comments for a Zendesk ticket by its ID",
             inputSchema={
@@ -348,6 +367,13 @@ async def handle_call_tool(
             return [types.TextContent(
                 type="text",
                 text=json.dumps(ticket)
+            )]
+
+        elif name == "get_multiple_tickets":
+            tickets = zendesk_client.get_multiple_tickets(arguments["ticket_ids"])
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(tickets, indent=2)
             )]
 
         elif name == "get_ticket_comments":
