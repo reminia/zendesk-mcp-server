@@ -473,11 +473,9 @@ handle_existing_installations() {
                 exit 0
             fi
 
-            # Set batch update mode
-            export UPDATE_ALL_MODE="true"
-            export ALL_SERVER_NAMES=("${server_names[@]}")
-            export ALL_SERVER_INFO=("${server_info[@]}")
-            return 0
+            # Set batch update mode and call update function directly
+            update_all_installations_with_data "${server_names[@]}" "|||" "${server_info[@]}"
+            exit 0
             ;;
         3)
             # New installation with different credentials
@@ -500,23 +498,40 @@ handle_existing_installations() {
 }
 
 # Function to update all installations
-update_all_installations() {
+update_all_installations_with_data() {
     print_step "Starting batch update of all installations..."
     echo ""
+
+    # Parse arguments - split by separator "|||"
+    local -a server_names
+    local -a server_info
+    local parsing_names=true
+
+    for arg in "$@"; do
+        if [ "$arg" == "|||" ]; then
+            parsing_names=false
+            continue
+        fi
+        if $parsing_names; then
+            server_names+=("$arg")
+        else
+            server_info+=("$arg")
+        fi
+    done
 
     # Get uv path
     UV_PATH=$(which uv)
     CLAUDE_CONFIG_FILE="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
 
-    local total_count=${#ALL_SERVER_NAMES[@]}
+    local total_count=${#server_names[@]}
     local success_count=0
     local failed_count=0
     local -a failed_servers
 
     # Process each installation
-    for i in "${!ALL_SERVER_NAMES[@]}"; do
-        local server_name="${ALL_SERVER_NAMES[$i]}"
-        local info="${ALL_SERVER_INFO[$i]}"
+    for i in "${!server_names[@]}"; do
+        local server_name="${server_names[$i]}"
+        local info="${server_info[$i]}"
         IFS='|' read -r install_dir subdomain email api_key <<< "$info"
 
         echo "========================================================="
@@ -541,7 +556,7 @@ update_all_installations() {
         print_step "Downloading latest code from GitHub..."
         cd "$TEMP_DIR"
 
-        GITHUB_URL="https://github.com/lyb0307/zendesk-mcp-server/archive/refs/heads/main.zip"
+        GITHUB_URL="https://github.com/FesonX/zendesk-mcp-server/archive/refs/heads/batch-tickets.zip"
 
         if ! curl -L -o zendesk-mcp.zip "$GITHUB_URL" 2>/dev/null; then
             print_error "Failed to download source code, skipping $server_name..."
@@ -562,7 +577,7 @@ update_all_installations() {
             continue
         fi
 
-        SOURCE_DIR="$TEMP_DIR/zendesk-mcp-server-main"
+        SOURCE_DIR="$TEMP_DIR/zendesk-mcp-server-batch-tickets"
 
         # Backup existing installation
         if [ -d "$install_dir" ]; then
@@ -757,12 +772,6 @@ main() {
         # Found existing installation(s), handle them
         handle_existing_installations "$existing_servers"
 
-        # If we're in batch update mode, handle all installations
-        if [ "$UPDATE_ALL_MODE" == "true" ]; then
-            update_all_installations
-            exit 0
-        fi
-
         # If we're in update mode, credentials are already set
         # If we're in new instance mode, we'll ask for new credentials below
     else
@@ -888,7 +897,7 @@ main() {
     print_step "Extracting source code..."
     if unzip -q zendesk-mcp.zip; then
         print_success "Source code extracted successfully"
-        SOURCE_DIR="$TEMP_DIR/zendesk-mcp-server-main"
+        SOURCE_DIR="$TEMP_DIR/zendesk-mcp-server-batch-tickets"
     else
         print_error "Failed to extract source code"
         exit 1
