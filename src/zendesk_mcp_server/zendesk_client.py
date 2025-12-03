@@ -67,12 +67,10 @@ class ZendeskClient:
                 raise ValueError("Cannot retrieve more than 100 tickets at once")
 
             # Convert list to comma-separated string
-            import urllib.parse
             ids_param = ','.join(str(tid) for tid in ticket_ids)
-            encoded_ids = urllib.parse.quote(ids_param)
 
             # Construct the URL using the show_many endpoint
-            url = f"https://{self.client.tickets.base_url}/api/v2/tickets/show_many.json?ids={encoded_ids}"
+            url = f"https://{self.client.tickets.base_url}/api/v2/tickets/show_many.json?ids={ids_param}"
 
             # Use the session to make the request
             response = self.client.tickets.session.get(url, timeout=self.client.tickets.timeout)
