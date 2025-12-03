@@ -556,7 +556,7 @@ update_all_installations_with_data() {
         print_step "Downloading latest code from GitHub..."
         cd "$TEMP_DIR"
 
-        GITHUB_URL="https://github.com/FesonX/zendesk-mcp-server/archive/refs/heads/batch-tickets.zip"
+        GITHUB_URL="https://github.com/lyb0307/zendesk-mcp-server/archive/refs/heads/main.zip"
 
         if ! curl -L -o zendesk-mcp.zip "$GITHUB_URL" 2>/dev/null; then
             print_error "Failed to download source code, skipping $server_name..."
@@ -577,7 +577,7 @@ update_all_installations_with_data() {
             continue
         fi
 
-        SOURCE_DIR="$TEMP_DIR/zendesk-mcp-server-batch-tickets"
+        SOURCE_DIR="$TEMP_DIR/zendesk-mcp-server-main"
 
         # Backup existing installation
         if [ -d "$install_dir" ]; then
@@ -897,7 +897,7 @@ main() {
     print_step "Extracting source code..."
     if unzip -q zendesk-mcp.zip; then
         print_success "Source code extracted successfully"
-        SOURCE_DIR="$TEMP_DIR/zendesk-mcp-server-batch-tickets"
+        SOURCE_DIR="$TEMP_DIR/zendesk-mcp-server-main"
     else
         print_error "Failed to extract source code"
         exit 1
