@@ -1,6 +1,7 @@
 from typing import Dict, Any, List
 import logging
 import base64
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from zenpy import Zenpy
 from zenpy.lib.api_objects import Comment
@@ -48,13 +49,14 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to get ticket {ticket_id}: {str(e)}")
 
-    def get_multiple_tickets(self, ticket_ids: List[int]) -> List[Dict[str, Any]]:
+    def get_multiple_tickets(self, ticket_ids: List[int], include_comments: bool = False) -> List[Dict[str, Any]]:
         """
         Query multiple tickets by their IDs (up to 100 tickets).
         Ref: https://developer.zendesk.com/api-reference/ticketing/tickets/tickets/#show-multiple-tickets
 
         Args:
             ticket_ids: List of ticket IDs to retrieve
+            include_comments: Whether to include comments for each ticket (default: False)
 
         Returns:
             List of ticket dictionaries with full ticket data
@@ -77,6 +79,7 @@ class ZendeskClient:
             response.raise_for_status()
             data = response.json()
 
+            # Build ticket dictionaries
             tickets = []
             for ticket in data.get('tickets', []):
                 # Use same simplified fields as get_ticket() for consistency
@@ -94,7 +97,38 @@ class ZendeskClient:
                 }
                 tickets.append(ticket_dict)
 
-            logger.info(f"Retrieved {len(tickets)} tickets from IDs: {ticket_ids}")
+            # Optionally fetch comments for each ticket in parallel
+            if include_comments:
+                def fetch_comments_for_ticket(ticket_dict):
+                    """Helper function to fetch comments for a single ticket"""
+                    ticket_id = ticket_dict['id']
+                    try:
+                        comments = self.get_ticket_comments(ticket_id, include_inline_images=False)
+                        ticket_dict['comments'] = comments
+                    except Exception as e:
+                        logger.warning(f"Failed to fetch comments for ticket {ticket_id}: {str(e)}")
+                        ticket_dict['comments'] = []
+                    return ticket_dict
+
+                # Use ThreadPoolExecutor with max 10 workers for parallel fetching
+                with ThreadPoolExecutor(max_workers=10) as executor:
+                    # Submit all tasks
+                    future_to_ticket = {executor.submit(fetch_comments_for_ticket, ticket): ticket for ticket in tickets}
+
+                    # Wait for all to complete and update tickets list
+                    tickets = []
+                    for future in as_completed(future_to_ticket):
+                        try:
+                            ticket_with_comments = future.result()
+                            tickets.append(ticket_with_comments)
+                        except Exception as e:
+                            # This shouldn't happen since we catch errors in fetch_comments_for_ticket
+                            original_ticket = future_to_ticket[future]
+                            logger.error(f"Unexpected error fetching comments for ticket {original_ticket['id']}: {str(e)}")
+                            original_ticket['comments'] = []
+                            tickets.append(original_ticket)
+
+            logger.info(f"Retrieved {len(tickets)} tickets from IDs: {ticket_ids} (include_comments={include_comments})")
             return tickets
         except ValueError as ve:
             raise ve

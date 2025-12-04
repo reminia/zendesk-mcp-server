@@ -134,9 +134,9 @@ The server supports Zendesk macros for automated ticket actions:
 
 The server supports retrieving multiple tickets in a single API call:
 
-- **Get multiple tickets**: Use `get_multiple_tickets(ticket_ids)` to fetch up to 100 tickets at once
+- **Get multiple tickets**: Use `get_multiple_tickets(ticket_ids, include_comments)` to fetch up to 100 tickets at once
 - **Efficient for batch operations**: Customer service staff can review multiple tickets simultaneously
-- **Full ticket data**: Returns complete ticket information including custom fields, tags, and metadata
+- **Optional comments inclusion**: Set `include_comments=true` to fetch full conversation history in one call
 
 **Important Implementation Notes:**
 
@@ -148,10 +148,17 @@ The server supports retrieving multiple tickets in a single API call:
    url = f"https://{self.client.tickets.base_url}/api/v2/tickets/show_many.json?ids={ids_param}"
    response = self.client.tickets.session.get(url, timeout=self.client.tickets.timeout)
    ```
-   
+4. **Parallel comments fetching**: When `include_comments=true`, the method uses `ThreadPoolExecutor` with max 10 workers to fetch comments in parallel for better performance. Failed comment fetches log a warning but don't fail the entire request.
+   ```python
+   with ThreadPoolExecutor(max_workers=10) as executor:
+       future_to_ticket = {executor.submit(fetch_comments_for_ticket, ticket): ticket for ticket in tickets}
+       for future in as_completed(future_to_ticket):
+           ticket_with_comments = future.result()
+   ```
+
 **Use Cases:**
-- Batch ticket review workflows for customer service teams
-- Bulk ticket analysis and reporting
+- Batch ticket review workflows for customer service teams (use `include_comments=true`)
+- Bulk ticket analysis and reporting (summaries only, `include_comments=false`)
 - Multi-ticket operations when Claude Desktop doesn't support parallel tool calls
 
 **Testing:**
