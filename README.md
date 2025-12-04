@@ -39,6 +39,30 @@ This server provides a comprehensive integration with Zendesk. It offers:
 }
 ```
 
+#### Claude MCP Integration
+
+To use the Dockerized server from Claude Code/Desktop, add an entry to Claude Code's `settings.json` similar to:
+
+```json
+{
+  "mcpServers": {
+    "zendesk": {
+      "command": "/usr/local/bin/docker",
+      "args": [
+        "run",
+        "--rm",
+        "-i",
+        "--env-file",
+        "/path/to/zendesk-mcp-server/.env",
+        "zendesk-mcp-server"
+      ]
+    }
+  }
+}
+```
+
+Adjust the paths to match your environment. After saving the file, restart Claude for the new MCP server to be detected.
+
 ## Features
 
 ### Multi-Language Support
@@ -97,7 +121,7 @@ Macros are useful for:
 
 Analyze a Zendesk ticket and provide a detailed analysis of the ticket.
 
-### draft-ticket-respons
+### draft-ticket-response
 
 Draft a response to a Zendesk ticket.
 

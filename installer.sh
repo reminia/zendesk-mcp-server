@@ -365,12 +365,13 @@ handle_existing_installations() {
 
     echo "What would you like to do?"
     echo "[1] Update an existing installation (reuse credentials)"
-    echo "[2] Install a new instance (different subdomain/credentials)"
-    echo "[3] Cancel"
+    echo "[2] Update ALL installations (batch update)"
+    echo "[3] Install a new instance (different subdomain/credentials)"
+    echo "[4] Cancel"
     echo ""
 
     local choice
-    read -p "Enter your choice [1-3]: " choice
+    read -p "Enter your choice [1-4]: " choice
 
     case $choice in
         1)
@@ -450,6 +451,33 @@ handle_existing_installations() {
             fi
             ;;
         2)
+            # Update ALL installations
+            echo ""
+            print_info "Updating ALL $server_count installation(s)..."
+            echo ""
+
+            # Show summary of what will be updated
+            local idx=1
+            while IFS= read -r server_name; do
+                local info="${server_info[$((idx-1))]}"
+                IFS='|' read -r install_dir subdomain email api_key <<< "$info"
+                echo "[$idx] $server_name (Subdomain: $subdomain)"
+                ((idx++))
+            done <<< "$existing_servers"
+
+            echo ""
+            read -p "Update all these installations? (y/N): " confirm
+
+            if [[ ! $confirm =~ ^[Yy]$ ]]; then
+                echo "Installation cancelled."
+                exit 0
+            fi
+
+            # Set batch update mode and call update function directly
+            update_all_installations_with_data "${server_names[@]}" "|||" "${server_info[@]}"
+            exit 0
+            ;;
+        3)
             # New installation with different credentials
             echo ""
             print_info "Installing new instance alongside existing installation(s)..."
@@ -457,7 +485,7 @@ handle_existing_installations() {
             export NEW_INSTANCE="true"
             return 0
             ;;
-        3)
+        4)
             echo "Installation cancelled."
             exit 0
             ;;
@@ -467,6 +495,157 @@ handle_existing_installations() {
             exit 0
             ;;
     esac
+}
+
+# Function to update all installations
+update_all_installations_with_data() {
+    print_step "Starting batch update of all installations..."
+    echo ""
+
+    # Parse arguments - split by separator "|||"
+    local -a server_names
+    local -a server_info
+    local parsing_names=true
+
+    for arg in "$@"; do
+        if [ "$arg" == "|||" ]; then
+            parsing_names=false
+            continue
+        fi
+        if $parsing_names; then
+            server_names+=("$arg")
+        else
+            server_info+=("$arg")
+        fi
+    done
+
+    # Get uv path
+    UV_PATH=$(which uv)
+    CLAUDE_CONFIG_FILE="$HOME/Library/Application Support/Claude/claude_desktop_config.json"
+
+    local total_count=${#server_names[@]}
+    local success_count=0
+    local failed_count=0
+    local -a failed_servers
+
+    # Process each installation
+    for i in "${!server_names[@]}"; do
+        local server_name="${server_names[$i]}"
+        local info="${server_info[$i]}"
+        IFS='|' read -r install_dir subdomain email api_key <<< "$info"
+
+        echo "========================================================="
+        print_info "[$((i+1))/$total_count] Updating: $server_name"
+        echo "  Directory: $install_dir"
+        echo "  Subdomain: $subdomain"
+        echo "========================================================="
+
+        # Validate credentials exist
+        if [ -z "$subdomain" ] || [ -z "$install_dir" ]; then
+            print_error "Cannot extract credentials for $server_name, skipping..."
+            ((failed_count++))
+            failed_servers+=("$server_name (missing credentials)")
+            echo ""
+            continue
+        fi
+
+        # Create temporary directory for download
+        local TEMP_DIR=$(mktemp -d)
+
+        # Download source code
+        print_step "Downloading latest code from GitHub..."
+        cd "$TEMP_DIR"
+
+        GITHUB_URL="https://github.com/lyb0307/zendesk-mcp-server/archive/refs/heads/main.zip"
+
+        if ! curl -L -o zendesk-mcp.zip "$GITHUB_URL" 2>/dev/null; then
+            print_error "Failed to download source code, skipping $server_name..."
+            ((failed_count++))
+            failed_servers+=("$server_name (download failed)")
+            rm -rf "$TEMP_DIR"
+            echo ""
+            continue
+        fi
+
+        # Extract
+        if ! unzip -q zendesk-mcp.zip 2>/dev/null; then
+            print_error "Failed to extract source code, skipping $server_name..."
+            ((failed_count++))
+            failed_servers+=("$server_name (extraction failed)")
+            rm -rf "$TEMP_DIR"
+            echo ""
+            continue
+        fi
+
+        SOURCE_DIR="$TEMP_DIR/zendesk-mcp-server-main"
+
+        # Backup existing installation
+        if [ -d "$install_dir" ]; then
+            print_step "Backing up existing installation..."
+            mv "$install_dir" "${install_dir}.backup.$(date +%Y%m%d_%H%M%S)"
+        fi
+
+        # Install new version
+        print_step "Installing new version..."
+        mkdir -p "$(dirname "$install_dir")"
+        cp -r "$SOURCE_DIR" "$install_dir"
+        cd "$install_dir"
+
+        # Install certificates
+        print_step "Installing enterprise certificates..."
+        install_enterprise_certs "$install_dir" 2>&1 | grep -E "(SUCCESS|ERROR|WARNING)" || true
+
+        # Build
+        print_step "Building MCP server..."
+        if ! uv build 2>&1 | tail -3; then
+            print_warning "Build may have issues, but continuing..."
+        fi
+
+        # Restore .env with preserved credentials
+        print_step "Restoring configuration..."
+        cat > .env << EOF
+ZENDESK_SUBDOMAIN=$subdomain
+ZENDESK_EMAIL=$email
+ZENDESK_API_KEY=$api_key
+EOF
+
+        # Update Claude config
+        print_step "Updating Claude Desktop configuration..."
+        update_claude_config "$CLAUDE_CONFIG_FILE" "$install_dir" "$UV_PATH" "$server_name"
+
+        # Cleanup
+        rm -rf "$TEMP_DIR"
+
+        print_success "✅ Successfully updated: $server_name"
+        ((success_count++))
+        echo ""
+    done
+
+    # Summary
+    echo ""
+    echo "========================================================="
+    echo "           Batch Update Summary"
+    echo "========================================================="
+    echo ""
+    print_info "Total installations: $total_count"
+    print_success "Successfully updated: $success_count"
+
+    if [ $failed_count -gt 0 ]; then
+        print_error "Failed: $failed_count"
+        echo ""
+        echo "Failed installations:"
+        for failed in "${failed_servers[@]}"; do
+            echo "  - $failed"
+        done
+    fi
+
+    echo ""
+    echo "========================================================="
+    echo "                All Updates Complete!"
+    echo "========================================================="
+    echo ""
+    print_warning "🚨 IMPORTANT: Restart Claude Desktop app to activate the updates!"
+    echo ""
 }
 
 # Function to test the MCP server installation
