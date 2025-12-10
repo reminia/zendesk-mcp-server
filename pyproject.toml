@@ -1,13 +1,32 @@
 [project]
 name = "zendesk-mcp-server"
-version = "0.1.0"
-description = "A simple Zendesk MCP server"
+version = "0.2.0"
+description = "A Zendesk MCP server with OAuth authentication support"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "mcp>=1.1.2",
     "python-dotenv>=1.0.1",
     "zenpy>=2.0.56",
+    # HTTP server dependencies
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "httpx>=0.28.0",
+    # OAuth and security
+    "cryptography>=44.0.0",
+    "python-jose[cryptography]>=3.3.0",
+    # Async utilities
+    "cachetools>=5.5.0",
+    # SSE for MCP streaming
+    "sse-starlette>=2.1.0",
+    # Database (SQLite by default, optional PostgreSQL)
+    "aiosqlite>=0.20.0",
+]
+
+[project.optional-dependencies]
+postgres = [
+    "asyncpg>=0.30.0",
+    "sqlalchemy[asyncio]>=2.0.0",
 ]
 
 [build-system]
@@ -16,3 +35,4 @@ build-backend = "hatchling.build"
 
 [project.scripts]
 zendesk = "zendesk_mcp_server:main"
+zendesk-remote = "zendesk_mcp_server:main_remote"

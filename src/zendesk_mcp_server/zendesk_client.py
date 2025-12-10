@@ -1,4 +1,4 @@
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 import logging
 import base64
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -10,23 +10,115 @@ logger = logging.getLogger(__name__)
 
 
 class ZendeskClient:
-    def __init__(self, subdomain: str, email: str, token: str, timeout: int = 30):
+    """
+    Zendesk API client wrapper.
+
+    Supports two authentication modes:
+    1. API token (email + token) - for local/development use
+    2. OAuth access token - for remote/production use
+    """
+
+    def __init__(
+        self,
+        subdomain: str,
+        email: Optional[str] = None,
+        token: Optional[str] = None,
+        oauth_token: Optional[str] = None,
+        timeout: int = 30,
+    ):
         """
-        Initialize the Zendesk client using zenpy lib.
+        Initialize the Zendesk client.
+
+        Args:
+            subdomain: Zendesk subdomain
+            email: Zendesk account email (for API token auth)
+            token: Zendesk API token (for API token auth)
+            oauth_token: OAuth 2.0 access token (for OAuth auth)
+            timeout: Request timeout in seconds
+
+        Either (email + token) OR oauth_token must be provided.
+        """
+        self.subdomain = subdomain
+
+        if oauth_token:
+            # OAuth authentication
+            self.client = Zenpy(
+                subdomain=subdomain,
+                oauth_token=oauth_token,
+                timeout=timeout,
+            )
+            self._auth_mode = "oauth"
+            logger.info(f"ZendeskClient initialized with OAuth for subdomain: {subdomain}")
+        elif email and token:
+            # API token authentication
+            self.client = Zenpy(
+                subdomain=subdomain,
+                email=email,
+                token=token,
+                timeout=timeout,
+            )
+            self._auth_mode = "api_token"
+            logger.info(f"ZendeskClient initialized with API token for subdomain: {subdomain}")
+        else:
+            raise ValueError(
+                "Either (email + token) or oauth_token must be provided"
+            )
+
+    @classmethod
+    def from_oauth_token(
+        cls,
+        subdomain: str,
+        access_token: str,
+        timeout: int = 30,
+    ) -> "ZendeskClient":
+        """
+        Create a client using OAuth access token.
+
+        Args:
+            subdomain: Zendesk subdomain
+            access_token: OAuth 2.0 access token
+            timeout: Request timeout in seconds
+
+        Returns:
+            ZendeskClient instance configured for OAuth
+        """
+        return cls(
+            subdomain=subdomain,
+            oauth_token=access_token,
+            timeout=timeout,
+        )
+
+    @classmethod
+    def from_api_token(
+        cls,
+        subdomain: str,
+        email: str,
+        api_token: str,
+        timeout: int = 30,
+    ) -> "ZendeskClient":
+        """
+        Create a client using API token.
 
         Args:
             subdomain: Zendesk subdomain
             email: Zendesk account email
-            token: Zendesk API token
+            api_token: Zendesk API token
             timeout: Request timeout in seconds
-        """
 
-        self.client = Zenpy(
+        Returns:
+            ZendeskClient instance configured for API token auth
+        """
+        return cls(
             subdomain=subdomain,
             email=email,
-            token=token,
+            token=api_token,
             timeout=timeout,
         )
+
+    @property
+    def auth_mode(self) -> str:
+        """Return the authentication mode ('oauth' or 'api_token')."""
+        return self._auth_mode
 
     def get_ticket(self, ticket_id: int) -> Dict[str, Any]:
         """
