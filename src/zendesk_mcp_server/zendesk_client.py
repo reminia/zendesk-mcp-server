@@ -182,6 +182,137 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to fetch knowledge base: {str(e)}")
 
+    def search_articles(
+        self,
+        query: str,
+        locale: str | None = None,
+        per_page: int = 25,
+        page: int = 1
+    ) -> Dict[str, Any]:
+        """
+        Search help center articles by query string.
+
+        Args:
+            query: Search query string
+            locale: Optional locale filter (e.g., 'en-us')
+            per_page: Number of results per page (max 100)
+            page: Page number (1-based)
+
+        Returns:
+            Dict containing search results and pagination info
+        """
+        try:
+            # Cap at reasonable limit
+            per_page = min(per_page, 100)
+
+            # Build URL with parameters
+            params = {
+                'query': query,
+                'per_page': str(per_page),
+                'page': str(page)
+            }
+            if locale:
+                params['locale'] = locale
+
+            query_string = urllib.parse.urlencode(params)
+            url = f"{self.base_url}/help_center/articles/search.json?{query_string}"
+
+            # Create request with auth header
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', self.auth_header)
+            req.add_header('Content-Type', 'application/json')
+
+            # Make the API request
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+
+            results = data.get('results', [])
+
+            # Process articles to return essential fields
+            articles = []
+            for article in results:
+                articles.append({
+                    'id': article.get('id'),
+                    'title': article.get('title'),
+                    'body': article.get('body'),
+                    'author_id': article.get('author_id'),
+                    'section_id': article.get('section_id'),
+                    'locale': article.get('locale'),
+                    'html_url': article.get('html_url'),
+                    'created_at': article.get('created_at'),
+                    'updated_at': article.get('updated_at'),
+                    'draft': article.get('draft', False)
+                })
+
+            return {
+                'articles': articles,
+                'query': query,
+                'page': page,
+                'per_page': per_page,
+                'count': len(articles),
+                'total_count': data.get('count', len(articles)),
+                'next_page': data.get('next_page'),
+                'previous_page': data.get('previous_page')
+            }
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else "No response body"
+            raise Exception(f"Failed to search articles: HTTP {e.code} - {e.reason}. {error_body}")
+        except Exception as e:
+            raise Exception(f"Failed to search articles: {str(e)}")
+
+    def get_article(self, article_id: int, locale: str | None = None) -> Dict[str, Any]:
+        """
+        Get a specific help center article by its ID.
+
+        Args:
+            article_id: The ID of the article to retrieve
+            locale: Optional locale (e.g., 'en-us')
+
+        Returns:
+            Dict containing article details
+        """
+        try:
+            # Build URL
+            url = f"{self.base_url}/help_center/articles/{article_id}.json"
+            if locale:
+                url += f"?locale={locale}"
+
+            # Create request with auth header
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', self.auth_header)
+            req.add_header('Content-Type', 'application/json')
+
+            # Make the API request
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+
+            article = data.get('article', {})
+
+            return {
+                'id': article.get('id'),
+                'title': article.get('title'),
+                'body': article.get('body'),
+                'author_id': article.get('author_id'),
+                'section_id': article.get('section_id'),
+                'locale': article.get('locale'),
+                'source_locale': article.get('source_locale'),
+                'html_url': article.get('html_url'),
+                'created_at': article.get('created_at'),
+                'updated_at': article.get('updated_at'),
+                'edited_at': article.get('edited_at'),
+                'draft': article.get('draft', False),
+                'promoted': article.get('promoted', False),
+                'position': article.get('position'),
+                'vote_sum': article.get('vote_sum'),
+                'vote_count': article.get('vote_count'),
+                'label_names': article.get('label_names', [])
+            }
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else "No response body"
+            raise Exception(f"Failed to get article {article_id}: HTTP {e.code} - {e.reason}. {error_body}")
+        except Exception as e:
+            raise Exception(f"Failed to get article {article_id}: {str(e)}")
+
     def create_ticket(
         self,
         subject: str,
