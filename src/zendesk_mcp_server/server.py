@@ -159,20 +159,65 @@ async def handle_list_tools() -> list[types.Tool]:
             }
         ),
         types.Tool(
-            name="get_tickets",
-            description="Fetch the latest tickets with pagination support",
+            name="search_tickets",
+            description="Search Zendesk tickets with filters for status, priority, assignee, requester, commenter, dates, and more",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "page": {
-                        "type": "integer",
-                        "description": "Page number",
-                        "default": 1
+                    "query": {
+                        "type": "string",
+                        "description": "Free text search query"
                     },
-                    "per_page": {
+                    "status": {
+                        "type": "string",
+                        "description": "Filter by status",
+                        "enum": ["new", "open", "pending", "hold", "solved", "closed"]
+                    },
+                    "priority": {
+                        "type": "string",
+                        "description": "Filter by priority",
+                        "enum": ["low", "normal", "high", "urgent"]
+                    },
+                    "assignee": {
                         "type": "integer",
-                        "description": "Number of tickets per page (max 100)",
-                        "default": 25
+                        "description": "Filter by assignee user ID"
+                    },
+                    "requester": {
+                        "type": "integer",
+                        "description": "Filter by requester user ID"
+                    },
+                    "commenter": {
+                        "type": "integer",
+                        "description": "Filter by commenter user ID (tickets where this user commented)"
+                    },
+                    "group": {
+                        "type": "integer",
+                        "description": "Filter by group ID"
+                    },
+                    "organization": {
+                        "type": "integer",
+                        "description": "Filter by organization ID"
+                    },
+                    "tags": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Filter by tags"
+                    },
+                    "created_after": {
+                        "type": "string",
+                        "description": "Tickets created after this date (ISO 8601 format)"
+                    },
+                    "created_before": {
+                        "type": "string",
+                        "description": "Tickets created before this date (ISO 8601 format)"
+                    },
+                    "updated_after": {
+                        "type": "string",
+                        "description": "Tickets updated after this date (ISO 8601 format)"
+                    },
+                    "updated_before": {
+                        "type": "string",
+                        "description": "Tickets updated before this date (ISO 8601 format)"
                     },
                     "sort_by": {
                         "type": "string",
@@ -183,6 +228,16 @@ async def handle_list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": "Sort order (asc or desc)",
                         "default": "desc"
+                    },
+                    "page": {
+                        "type": "integer",
+                        "description": "Page number",
+                        "default": 1
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "description": "Number of tickets per page (max 100)",
+                        "default": 25
                     }
                 },
                 "required": []
@@ -282,17 +337,43 @@ async def handle_call_tool(
                 text=json.dumps({"message": "Ticket created successfully", "ticket": created}, indent=2)
             )]
 
-        elif name == "get_tickets":
-            page = arguments.get("page", 1) if arguments else 1
-            per_page = arguments.get("per_page", 25) if arguments else 25
-            sort_by = arguments.get("sort_by", "created_at") if arguments else "created_at"
-            sort_order = arguments.get("sort_order", "desc") if arguments else "desc"
+        elif name == "search_tickets":
+            from datetime import datetime
 
-            tickets = zendesk_client.get_tickets(
-                page=page,
-                per_page=per_page,
-                sort_by=sort_by,
-                sort_order=sort_order
+            # Parse date strings to datetime objects if provided
+            created_after = None
+            created_before = None
+            updated_after = None
+            updated_before = None
+
+            if arguments:
+                if arguments.get("created_after"):
+                    created_after = datetime.fromisoformat(arguments["created_after"].replace("Z", "+00:00"))
+                if arguments.get("created_before"):
+                    created_before = datetime.fromisoformat(arguments["created_before"].replace("Z", "+00:00"))
+                if arguments.get("updated_after"):
+                    updated_after = datetime.fromisoformat(arguments["updated_after"].replace("Z", "+00:00"))
+                if arguments.get("updated_before"):
+                    updated_before = datetime.fromisoformat(arguments["updated_before"].replace("Z", "+00:00"))
+
+            tickets = zendesk_client.search_tickets(
+                query=arguments.get("query") if arguments else None,
+                status=arguments.get("status") if arguments else None,
+                priority=arguments.get("priority") if arguments else None,
+                assignee=arguments.get("assignee") if arguments else None,
+                requester=arguments.get("requester") if arguments else None,
+                commenter=arguments.get("commenter") if arguments else None,
+                group=arguments.get("group") if arguments else None,
+                organization=arguments.get("organization") if arguments else None,
+                tags=arguments.get("tags") if arguments else None,
+                created_after=created_after,
+                created_before=created_before,
+                updated_after=updated_after,
+                updated_before=updated_before,
+                sort_by=arguments.get("sort_by", "created_at") if arguments else "created_at",
+                sort_order=arguments.get("sort_order", "desc") if arguments else "desc",
+                page=arguments.get("page", 1) if arguments else 1,
+                per_page=arguments.get("per_page", 25) if arguments else 25,
             )
             return [types.TextContent(
                 type="text",
