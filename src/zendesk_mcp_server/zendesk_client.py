@@ -1,8 +1,5 @@
+from datetime import datetime
 from typing import Dict, Any, List
-import json
-import urllib.request
-import urllib.parse
-import base64
 
 from zenpy import Zenpy
 from zenpy.lib.api_objects import Comment
@@ -12,23 +9,13 @@ from zenpy.lib.api_objects import Ticket as ZenpyTicket
 class ZendeskClient:
     def __init__(self, subdomain: str, email: str, token: str):
         """
-        Initialize the Zendesk client using zenpy lib and direct API.
+        Initialize the Zendesk client using Zenpy.
         """
         self.client = Zenpy(
             subdomain=subdomain,
             email=email,
             token=token
         )
-
-        # For direct API calls
-        self.subdomain = subdomain
-        self.email = email
-        self.token = token
-        self.base_url = f"https://{subdomain}.zendesk.com/api/v2"
-        # Create basic auth header
-        credentials = f"{email}/token:{token}"
-        encoded_credentials = base64.b64encode(credentials.encode()).decode('ascii')
-        self.auth_header = f"Basic {encoded_credentials}"
 
     def get_ticket(self, ticket_id: int) -> Dict[str, Any]:
         """
@@ -83,75 +70,130 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to post comment on ticket {ticket_id}: {str(e)}")
 
-    def get_tickets(self, page: int = 1, per_page: int = 25, sort_by: str = 'created_at', sort_order: str = 'desc') -> Dict[str, Any]:
+    def search_tickets(
+        self,
+        query: str | None = None,
+        status: str | None = None,
+        priority: str | None = None,
+        assignee: int | None = None,
+        requester: int | None = None,
+        commenter: int | None = None,
+        group: int | None = None,
+        organization: int | None = None,
+        tags: List[str] | None = None,
+        created_after: datetime | None = None,
+        created_before: datetime | None = None,
+        updated_after: datetime | None = None,
+        updated_before: datetime | None = None,
+        sort_by: str = 'created_at',
+        sort_order: str = 'desc',
+        page: int = 1,
+        per_page: int = 25,
+    ) -> Dict[str, Any]:
         """
-        Get the latest tickets with proper pagination support using direct API calls.
+        Search tickets using Zenpy with various filters.
 
         Args:
-            page: Page number (1-based)
-            per_page: Number of tickets per page (max 100)
+            query: Free text search query
+            status: Filter by status (new, open, pending, hold, solved, closed)
+            priority: Filter by priority (low, normal, high, urgent)
+            assignee: Filter by assignee user ID
+            requester: Filter by requester user ID
+            commenter: Filter by commenter user ID
+            group: Filter by group ID
+            organization: Filter by organization ID
+            tags: Filter by tags (list of tag strings)
+            created_after: Tickets created after this datetime
+            created_before: Tickets created before this datetime
+            updated_after: Tickets updated after this datetime
+            updated_before: Tickets updated before this datetime
             sort_by: Field to sort by (created_at, updated_at, priority, status)
             sort_order: Sort order (asc or desc)
+            page: Page number (1-based)
+            per_page: Number of tickets per page (max 100)
 
         Returns:
             Dict containing tickets and pagination info
         """
         try:
-            # Cap at reasonable limit
             per_page = min(per_page, 100)
 
-            # Build URL with parameters for offset pagination
-            params = {
-                'page': str(page),
-                'per_page': str(per_page),
+            # Build search kwargs
+            search_kwargs: Dict[str, Any] = {
+                'type': 'ticket',
                 'sort_by': sort_by,
-                'sort_order': sort_order
+                'sort_order': sort_order,
             }
-            query_string = urllib.parse.urlencode(params)
-            url = f"{self.base_url}/tickets.json?{query_string}"
 
-            # Create request with auth header
-            req = urllib.request.Request(url)
-            req.add_header('Authorization', self.auth_header)
-            req.add_header('Content-Type', 'application/json')
+            if status:
+                search_kwargs['status'] = status
+            if priority:
+                search_kwargs['priority'] = priority
+            if assignee:
+                search_kwargs['assignee'] = assignee
+            if requester:
+                search_kwargs['requester'] = requester
+            if commenter:
+                search_kwargs['commenter'] = commenter
+            if group:
+                search_kwargs['group'] = group
+            if organization:
+                search_kwargs['organization'] = organization
+            if tags:
+                search_kwargs['tags'] = tags
+            if created_after:
+                search_kwargs['created_after'] = created_after
+            if created_before:
+                search_kwargs['created_before'] = created_before
+            if updated_after:
+                search_kwargs['updated_after'] = updated_after
+            if updated_before:
+                search_kwargs['updated_before'] = updated_before
 
-            # Make the API request
-            with urllib.request.urlopen(req) as response:
-                data = json.loads(response.read().decode())
+            # Execute search with optional query
+            if query:
+                results = self.client.search(query, **search_kwargs)
+            else:
+                results = self.client.search(**search_kwargs)
 
-            tickets_data = data.get('tickets', [])
-
-            # Process tickets to return only essential fields
+            # Paginate through results
+            skip = (page - 1) * per_page
             ticket_list = []
-            for ticket in tickets_data:
+            skipped = 0
+            collected = 0
+
+            for ticket in results:
+                if skipped < skip:
+                    skipped += 1
+                    continue
+                if collected >= per_page:
+                    has_more = True
+                    break
                 ticket_list.append({
-                    'id': ticket.get('id'),
-                    'subject': ticket.get('subject'),
-                    'status': ticket.get('status'),
-                    'priority': ticket.get('priority'),
-                    'description': ticket.get('description'),
-                    'created_at': ticket.get('created_at'),
-                    'updated_at': ticket.get('updated_at'),
-                    'requester_id': ticket.get('requester_id'),
-                    'assignee_id': ticket.get('assignee_id')
+                    'id': ticket.id,
+                    'subject': ticket.subject,
+                    'status': ticket.status,
+                    'priority': ticket.priority,
+                    'description': ticket.description,
+                    'created_at': str(ticket.created_at),
+                    'updated_at': str(ticket.updated_at),
+                    'requester_id': ticket.requester_id,
+                    'assignee_id': ticket.assignee_id,
                 })
+                collected += 1
+            else:
+                has_more = False
 
             return {
                 'tickets': ticket_list,
                 'page': page,
                 'per_page': per_page,
                 'count': len(ticket_list),
-                'sort_by': sort_by,
-                'sort_order': sort_order,
-                'has_more': data.get('next_page') is not None,
-                'next_page': page + 1 if data.get('next_page') else None,
-                'previous_page': page - 1 if data.get('previous_page') and page > 1 else None
+                'has_more': has_more,
+                'next_page': page + 1 if has_more else None,
             }
-        except urllib.error.HTTPError as e:
-            error_body = e.read().decode() if e.fp else "No response body"
-            raise Exception(f"Failed to get latest tickets: HTTP {e.code} - {e.reason}. {error_body}")
         except Exception as e:
-            raise Exception(f"Failed to get latest tickets: {str(e)}")
+            raise Exception(f"Failed to search tickets: {str(e)}")
 
     def get_all_articles(self) -> Dict[str, Any]:
         """
