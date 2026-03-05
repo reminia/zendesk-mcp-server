@@ -203,6 +203,47 @@ async def handle_list_tools() -> list[types.Tool]:
             }
         ),
         types.Tool(
+            name="get_user",
+            description=(
+                "Look up a Zendesk user by ID or email. "
+                "Use user_id to resolve a requester_id or assignee_id from a ticket. "
+                "Use email to find a user by their email address. Exactly one must be provided."
+            ),
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The Zendesk user ID (e.g. requester_id from a ticket)"
+                    },
+                    "email": {
+                        "type": "string",
+                        "description": "The user's email address"
+                    }
+                },
+                "required": []
+            }
+        ),
+        types.Tool(
+            name="get_tickets_by_requester",
+            description="Fetch all tickets submitted by a specific user. Useful for seeing a requester's full history.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The Zendesk user ID (requester_id from a ticket or get_user)"
+                    },
+                    "limit": {
+                        "type": "integer",
+                        "description": "Max number of tickets to return (default: 100)",
+                        "default": 100
+                    }
+                },
+                "required": ["user_id"]
+            }
+        ),
+        types.Tool(
             name="create_ticket_comment",
             description="Create a new comment on an existing Zendesk ticket",
             inputSchema={
@@ -321,6 +362,28 @@ async def handle_call_tool(
             return [types.TextContent(
                 type="text",
                 text=json.dumps(comments)
+            )]
+
+        elif name == "get_user":
+            user = zendesk_client.get_user(
+                user_id=arguments.get("user_id") if arguments else None,
+                email=arguments.get("email") if arguments else None,
+            )
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(user, indent=2)
+            )]
+
+        elif name == "get_tickets_by_requester":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            tickets = zendesk_client.get_tickets_by_requester(
+                user_id=arguments["user_id"],
+                limit=arguments.get("limit", 100),
+            )
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(tickets, indent=2)
             )]
 
         elif name == "create_ticket_comment":
