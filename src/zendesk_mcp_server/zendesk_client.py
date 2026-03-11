@@ -31,6 +31,14 @@ class ZendeskClient:
         encoded_credentials = base64.b64encode(credentials.encode()).decode('ascii')
         self.auth_header = f"Basic {encoded_credentials}"
 
+        # Only Zendesk-controlled attachment hosts may be fetched.
+        self._trusted_attachment_hosts = {
+            f"{subdomain}.zendesk.com",
+        }
+        self._trusted_attachment_host_suffixes = (
+            ".zdusercontent.com",
+        )
+
     def get_ticket(self, ticket_id: int) -> Dict[str, Any]:
         """
         Query a ticket by its ID
@@ -110,9 +118,31 @@ class ZendeskClient:
         which is required — the CDN returns 403 if it receives an auth header.
         """
         try:
+            parsed_url = urllib.parse.urlparse(content_url)
+            if parsed_url.scheme.lower() != 'https':
+                raise ValueError("Attachment URL must use HTTPS.")
+
+            hostname = (parsed_url.hostname or '').lower()
+            if not hostname:
+                raise ValueError("Attachment URL must include a valid hostname.")
+
+            is_trusted_host = (
+                hostname in self._trusted_attachment_hosts
+                or any(hostname.endswith(suffix) for suffix in self._trusted_attachment_host_suffixes)
+            )
+            if not is_trusted_host:
+                raise ValueError(
+                    "Attachment host is not trusted. Only Zendesk-hosted attachment URLs are allowed."
+                )
+
+            # Only send Zendesk credentials to the account subdomain. CDN hosts don't need them.
+            headers = {}
+            if hostname == f"{self.subdomain}.zendesk.com":
+                headers['Authorization'] = self.auth_header
+
             response = _requests.get(
                 content_url,
-                headers={'Authorization': self.auth_header},
+                headers=headers,
                 timeout=30,
                 stream=True,
             )
