@@ -16,3 +16,4 @@ build-backend = "hatchling.build"
 
 [project.scripts]
 zendesk = "zendesk_mcp_server:main"
+zendesk-auth = "zendesk_mcp_server.auth:main"

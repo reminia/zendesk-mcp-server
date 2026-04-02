@@ -1,53 +1,99 @@
 from typing import Dict, Any, List
 import json
-import urllib.request
 import urllib.parse
 import base64
+import logging
 import requests as _requests
 
-from zenpy import Zenpy
-from zenpy.lib.api_objects import Comment
-from zenpy.lib.api_objects import Ticket as ZenpyTicket
+logger = logging.getLogger("zendesk-mcp-server")
 
 
 class ZendeskClient:
-    def __init__(self, subdomain: str, email: str, token: str):
+    def __init__(self, subdomain: str, email: str = None, token: str = None,
+                 session_cookie: str = None, oauth_access_token: str = None):
         """
-        Initialize the Zendesk client using zenpy lib and direct API.
-        """
-        self.client = Zenpy(
-            subdomain=subdomain,
-            email=email,
-            token=token
-        )
+        Initialize the Zendesk client.
 
-        # For direct API calls
+        Supports three auth modes (checked in order):
+        - OAuth token: requires oauth_access_token (Bearer token from mobile OAuth flow)
+        - API token: requires email + token (Basic auth with email/token:key)
+        - Cookie auth: requires session_cookie (browser session cookie)
+        """
         self.subdomain = subdomain
-        self.email = email
-        self.token = token
         self.base_url = f"https://{subdomain}.zendesk.com/api/v2"
-        # Create basic auth header
-        credentials = f"{email}/token:{token}"
-        encoded_credentials = base64.b64encode(credentials.encode()).decode('ascii')
-        self.auth_header = f"Basic {encoded_credentials}"
+
+        if oauth_access_token:
+            logger.info("Using OAuth Bearer token authentication")
+            self._session = _requests.Session()
+            self._session.headers.update({
+                'Authorization': f'Bearer {oauth_access_token}',
+                'Content-Type': 'application/json',
+            })
+            self.auth_header = f'Bearer {oauth_access_token}'
+        elif email and token:
+            logger.info("Using API token authentication")
+            credentials = f"{email}/token:{token}"
+            encoded_credentials = base64.b64encode(credentials.encode()).decode('ascii')
+            self.auth_header = f"Basic {encoded_credentials}"
+            self._session = _requests.Session()
+            self._session.headers.update({
+                'Authorization': self.auth_header,
+                'Content-Type': 'application/json',
+            })
+        elif session_cookie:
+            logger.info("Using cookie-based authentication")
+            self._session = _requests.Session()
+            self._session.cookies.set(
+                '_zendesk_session', session_cookie,
+                domain=f'{subdomain}.zendesk.com'
+            )
+            self._session.headers.update({
+                'Content-Type': 'application/json',
+            })
+            self.auth_header = None
+        else:
+            raise ValueError(
+                "No authentication configured. Provide one of: "
+                "oauth_access_token, email+token, or session_cookie. "
+                "Run 'zendesk-auth' to authenticate via OAuth."
+            )
+
+    def _api_get(self, path: str) -> Dict[str, Any]:
+        """Make a GET request to the Zendesk API."""
+        resp = self._session.get(f"{self.base_url}/{path}", timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
+    def _api_put(self, path: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Make a PUT request to the Zendesk API."""
+        resp = self._session.put(f"{self.base_url}/{path}", json=data, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
+
+    def _api_post(self, path: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Make a POST request to the Zendesk API."""
+        resp = self._session.post(f"{self.base_url}/{path}", json=data, timeout=30)
+        resp.raise_for_status()
+        return resp.json()
 
     def get_ticket(self, ticket_id: int) -> Dict[str, Any]:
         """
         Query a ticket by its ID
         """
         try:
-            ticket = self.client.tickets(id=ticket_id)
+            data = self._api_get(f"tickets/{ticket_id}.json")
+            ticket = data['ticket']
             return {
-                'id': ticket.id,
-                'subject': ticket.subject,
-                'description': ticket.description,
-                'status': ticket.status,
-                'priority': ticket.priority,
-                'created_at': str(ticket.created_at),
-                'updated_at': str(ticket.updated_at),
-                'requester_id': ticket.requester_id,
-                'assignee_id': ticket.assignee_id,
-                'organization_id': ticket.organization_id
+                'id': ticket.get('id'),
+                'subject': ticket.get('subject'),
+                'description': ticket.get('description'),
+                'status': ticket.get('status'),
+                'priority': ticket.get('priority'),
+                'created_at': ticket.get('created_at'),
+                'updated_at': ticket.get('updated_at'),
+                'requester_id': ticket.get('requester_id'),
+                'assignee_id': ticket.get('assignee_id'),
+                'organization_id': ticket.get('organization_id')
             }
         except Exception as e:
             raise Exception(f"Failed to get ticket {ticket_id}: {str(e)}")
@@ -57,25 +103,25 @@ class ZendeskClient:
         Get all comments for a specific ticket, including attachment metadata.
         """
         try:
-            comments = self.client.tickets.comments(ticket=ticket_id)
+            data = self._api_get(f"tickets/{ticket_id}/comments.json")
             result = []
-            for comment in comments:
+            for comment in data.get('comments', []):
                 attachments = []
-                for a in getattr(comment, 'attachments', []) or []:
+                for a in comment.get('attachments', []):
                     attachments.append({
-                        'id': a.id,
-                        'file_name': a.file_name,
-                        'content_url': a.content_url,
-                        'content_type': a.content_type,
-                        'size': a.size,
+                        'id': a.get('id'),
+                        'file_name': a.get('file_name'),
+                        'content_url': a.get('content_url'),
+                        'content_type': a.get('content_type'),
+                        'size': a.get('size'),
                     })
                 result.append({
-                    'id': comment.id,
-                    'author_id': comment.author_id,
-                    'body': comment.body,
-                    'html_body': comment.html_body,
-                    'public': comment.public,
-                    'created_at': str(comment.created_at),
+                    'id': comment.get('id'),
+                    'author_id': comment.get('author_id'),
+                    'body': comment.get('body'),
+                    'html_body': comment.get('html_body'),
+                    'public': comment.get('public'),
+                    'created_at': comment.get('created_at', ''),
                     'attachments': attachments,
                 })
             return result
@@ -110,9 +156,8 @@ class ZendeskClient:
         which is required — the CDN returns 403 if it receives an auth header.
         """
         try:
-            response = _requests.get(
+            response = self._session.get(
                 content_url,
-                headers={'Authorization': self.auth_header},
                 timeout=30,
                 stream=True,
             )
@@ -163,12 +208,15 @@ class ZendeskClient:
         Post a comment to an existing ticket.
         """
         try:
-            ticket = self.client.tickets(id=ticket_id)
-            ticket.comment = Comment(
-                html_body=comment,
-                public=public
-            )
-            self.client.tickets.update(ticket)
+            data = {
+                "ticket": {
+                    "comment": {
+                        "html_body": comment,
+                        "public": public
+                    }
+                }
+            }
+            self._api_put(f"tickets/{ticket_id}.json", data)
             return comment
         except Exception as e:
             raise Exception(f"Failed to post comment on ticket {ticket_id}: {str(e)}")
@@ -190,25 +238,13 @@ class ZendeskClient:
             # Cap at reasonable limit
             per_page = min(per_page, 100)
 
-            # Build URL with parameters for offset pagination
-            params = {
+            params = urllib.parse.urlencode({
                 'page': str(page),
                 'per_page': str(per_page),
                 'sort_by': sort_by,
                 'sort_order': sort_order
-            }
-            query_string = urllib.parse.urlencode(params)
-            url = f"{self.base_url}/tickets.json?{query_string}"
-
-            # Create request with auth header
-            req = urllib.request.Request(url)
-            req.add_header('Authorization', self.auth_header)
-            req.add_header('Content-Type', 'application/json')
-
-            # Make the API request
-            with urllib.request.urlopen(req) as response:
-                data = json.loads(response.read().decode())
-
+            })
+            data = self._api_get(f"tickets.json?{params}")
             tickets_data = data.get('tickets', [])
 
             # Process tickets to return only essential fields
@@ -237,9 +273,6 @@ class ZendeskClient:
                 'next_page': page + 1 if data.get('next_page') else None,
                 'previous_page': page - 1 if data.get('previous_page') and page > 1 else None
             }
-        except urllib.error.HTTPError as e:
-            error_body = e.read().decode() if e.fp else "No response body"
-            raise Exception(f"Failed to get latest tickets: HTTP {e.code} - {e.reason}. {error_body}")
         except Exception as e:
             raise Exception(f"Failed to get latest tickets: {str(e)}")
 
@@ -249,23 +282,28 @@ class ZendeskClient:
         Returns a Dict of section -> [article].
         """
         try:
-            # Get all sections
-            sections = self.client.help_center.sections()
+            sections_url = f"https://{self.subdomain}.zendesk.com/api/v2/help_center/sections.json"
+            resp = self._session.get(sections_url, timeout=30)
+            resp.raise_for_status()
+            sections_data = resp.json()
 
-            # Get articles for each section
             kb = {}
-            for section in sections:
-                articles = self.client.help_center.sections.articles(section.id)
-                kb[section.name] = {
-                    'section_id': section.id,
-                    'description': section.description,
+            for section in sections_data.get('sections', []):
+                articles_url = f"https://{self.subdomain}.zendesk.com/api/v2/help_center/sections/{section['id']}/articles.json"
+                resp = self._session.get(articles_url, timeout=30)
+                resp.raise_for_status()
+                articles_data = resp.json()
+
+                kb[section.get('name', '')] = {
+                    'section_id': section['id'],
+                    'description': section.get('description', ''),
                     'articles': [{
-                        'id': article.id,
-                        'title': article.title,
-                        'body': article.body,
-                        'updated_at': str(article.updated_at),
-                        'url': article.html_url
-                    } for article in articles]
+                        'id': article['id'],
+                        'title': article.get('title', ''),
+                        'body': article.get('body', ''),
+                        'updated_at': article.get('updated_at', ''),
+                        'url': article.get('html_url', '')
+                    } for article in articles_data.get('articles', [])]
                 }
 
             return kb
@@ -284,91 +322,75 @@ class ZendeskClient:
         custom_fields: List[Dict[str, Any]] | None = None,
     ) -> Dict[str, Any]:
         """
-        Create a new Zendesk ticket using Zenpy and return essential fields.
-
-        Args:
-            subject: Ticket subject
-            description: Ticket description (plain text). Will also be used as initial comment.
-            requester_id: Optional requester user ID
-            assignee_id: Optional assignee user ID
-            priority: Optional priority (low, normal, high, urgent)
-            type: Optional ticket type (problem, incident, question, task)
-            tags: Optional list of tags
-            custom_fields: Optional list of dicts: {id: int, value: Any}
+        Create a new Zendesk ticket and return essential fields.
         """
         try:
-            ticket = ZenpyTicket(
-                subject=subject,
-                description=description,
-                requester_id=requester_id,
-                assignee_id=assignee_id,
-                priority=priority,
-                type=type,
-                tags=tags,
-                custom_fields=custom_fields,
-            )
-            created_audit = self.client.tickets.create(ticket)
-            # Fetch created ticket id from audit
-            created_ticket_id = getattr(getattr(created_audit, 'ticket', None), 'id', None)
-            if created_ticket_id is None:
-                # Fallback: try to read id from audit events
-                created_ticket_id = getattr(created_audit, 'id', None)
+            ticket_data: Dict[str, Any] = {
+                "subject": subject,
+                "description": description,
+            }
+            if requester_id is not None:
+                ticket_data["requester_id"] = requester_id
+            if assignee_id is not None:
+                ticket_data["assignee_id"] = assignee_id
+            if priority is not None:
+                ticket_data["priority"] = priority
+            if type is not None:
+                ticket_data["type"] = type
+            if tags is not None:
+                ticket_data["tags"] = tags
+            if custom_fields is not None:
+                ticket_data["custom_fields"] = custom_fields
 
-            # Fetch full ticket to return consistent data
-            created = self.client.tickets(id=created_ticket_id) if created_ticket_id else None
+            result = self._api_post("tickets.json", {"ticket": ticket_data})
+            ticket = result.get('ticket', {})
 
             return {
-                'id': getattr(created, 'id', created_ticket_id),
-                'subject': getattr(created, 'subject', subject),
-                'description': getattr(created, 'description', description),
-                'status': getattr(created, 'status', 'new'),
-                'priority': getattr(created, 'priority', priority),
-                'type': getattr(created, 'type', type),
-                'created_at': str(getattr(created, 'created_at', '')),
-                'updated_at': str(getattr(created, 'updated_at', '')),
-                'requester_id': getattr(created, 'requester_id', requester_id),
-                'assignee_id': getattr(created, 'assignee_id', assignee_id),
-                'organization_id': getattr(created, 'organization_id', None),
-                'tags': list(getattr(created, 'tags', tags or []) or []),
+                'id': ticket.get('id'),
+                'subject': ticket.get('subject', subject),
+                'description': ticket.get('description', description),
+                'status': ticket.get('status', 'new'),
+                'priority': ticket.get('priority', priority),
+                'type': ticket.get('type', type),
+                'created_at': ticket.get('created_at', ''),
+                'updated_at': ticket.get('updated_at', ''),
+                'requester_id': ticket.get('requester_id', requester_id),
+                'assignee_id': ticket.get('assignee_id', assignee_id),
+                'organization_id': ticket.get('organization_id'),
+                'tags': ticket.get('tags', tags or []),
             }
         except Exception as e:
             raise Exception(f"Failed to create ticket: {str(e)}")
 
     def update_ticket(self, ticket_id: int, **fields: Any) -> Dict[str, Any]:
         """
-        Update a Zendesk ticket with provided fields using Zenpy.
+        Update a Zendesk ticket with provided fields.
 
         Supported fields include common ticket attributes like:
         subject, status, priority, type, assignee_id, requester_id,
         tags (list[str]), custom_fields (list[dict]), due_at, etc.
         """
         try:
-            # Load the ticket, mutate fields directly, and update
-            ticket = self.client.tickets(id=ticket_id)
-            for key, value in fields.items():
-                if value is None:
-                    continue
-                setattr(ticket, key, value)
-
-            # This call returns a TicketAudit (not a Ticket). Don't read attrs from it.
-            self.client.tickets.update(ticket)
+            update_data = {k: v for k, v in fields.items() if v is not None}
+            self._api_put(f"tickets/{ticket_id}.json", {"ticket": update_data})
 
             # Fetch the fresh ticket to return consistent data
-            refreshed = self.client.tickets(id=ticket_id)
+            data = self._api_get(f"tickets/{ticket_id}.json")
+            ticket = data['ticket']
 
             return {
-                'id': refreshed.id,
-                'subject': refreshed.subject,
-                'description': refreshed.description,
-                'status': refreshed.status,
-                'priority': refreshed.priority,
-                'type': getattr(refreshed, 'type', None),
-                'created_at': str(refreshed.created_at),
-                'updated_at': str(refreshed.updated_at),
-                'requester_id': refreshed.requester_id,
-                'assignee_id': refreshed.assignee_id,
-                'organization_id': refreshed.organization_id,
-                'tags': list(getattr(refreshed, 'tags', []) or []),
+                'id': ticket.get('id'),
+                'subject': ticket.get('subject'),
+                'description': ticket.get('description'),
+                'status': ticket.get('status'),
+                'priority': ticket.get('priority'),
+                'type': ticket.get('type'),
+                'created_at': ticket.get('created_at', ''),
+                'updated_at': ticket.get('updated_at', ''),
+                'requester_id': ticket.get('requester_id'),
+                'assignee_id': ticket.get('assignee_id'),
+                'organization_id': ticket.get('organization_id'),
+                'tags': ticket.get('tags', []),
             }
         except Exception as e:
             raise Exception(f"Failed to update ticket {ticket_id}: {str(e)}")
