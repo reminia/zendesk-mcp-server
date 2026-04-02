@@ -22,11 +22,62 @@ logger = logging.getLogger("zendesk-mcp-server")
 logger.info("zendesk mcp server started")
 
 load_dotenv()
-zendesk_client = ZendeskClient(
-    subdomain=os.getenv("ZENDESK_SUBDOMAIN"),
-    email=os.getenv("ZENDESK_EMAIL"),
-    token=os.getenv("ZENDESK_API_KEY")
-)
+
+
+def _init_client() -> ZendeskClient:
+    """
+    Initialize the Zendesk client with the best available auth method.
+
+    Priority:
+    1. Env var ZENDESK_OAUTH_TOKEN or ZENDESK_API_KEY (explicit config)
+    2. Saved OAuth token from .zendesk_token file
+    3. Browser-based OAuth flow (opens browser for login)
+    """
+    from zendesk_mcp_server.auth import ensure_auth, load_token
+
+    subdomain = os.getenv("ZENDESK_SUBDOMAIN")
+    email = os.getenv("ZENDESK_EMAIL")
+    api_key = os.getenv("ZENDESK_API_KEY")
+    oauth_token = os.getenv("ZENDESK_OAUTH_TOKEN")
+    session_cookie = os.getenv("ZENDESK_SESSION_COOKIE")
+
+    # If explicit credentials are set, use them directly
+    if oauth_token or (email and api_key) or session_cookie:
+        oauth_from_file = None
+        if not oauth_token:
+            token_data = load_token()
+            if token_data:
+                oauth_from_file = token_data.get("access_token")
+                subdomain = subdomain or token_data.get("subdomain")
+        return ZendeskClient(
+            subdomain=subdomain,
+            email=email,
+            token=api_key,
+            session_cookie=session_cookie,
+            oauth_access_token=oauth_token or oauth_from_file,
+        )
+
+    # No explicit credentials - try token file, then browser auth
+    if not subdomain:
+        # Check if token file has a subdomain
+        token_data = load_token()
+        if token_data:
+            subdomain = token_data.get("subdomain")
+
+    if not subdomain:
+        raise ValueError(
+            "ZENDESK_SUBDOMAIN is required. Set it in .env or run 'zendesk-auth'."
+        )
+
+    # ensure_auth will check existing token, verify it, or open browser
+    token_data = ensure_auth(subdomain)
+    return ZendeskClient(
+        subdomain=subdomain,
+        oauth_access_token=token_data["access_token"],
+    )
+
+
+zendesk_client = _init_client()
 
 server = Server("Zendesk Server")
 
@@ -258,7 +309,180 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["ticket_id"]
             }
-        )
+        ),
+        # ── P0: Search & Users ──────────────────────────────────────
+        types.Tool(
+            name="search",
+            description="Search Zendesk using Zendesk Query Language (ZQL). Searches tickets, users, and organizations. Example queries: 'type:ticket status:open priority:urgent', 'type:ticket assignee:me', 'type:user email:john@example.com'",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "ZQL search query"},
+                    "page": {"type": "integer", "default": 1},
+                    "per_page": {"type": "integer", "default": 25, "description": "Results per page (max 100)"},
+                    "sort_by": {"type": "string", "default": "relevance", "description": "relevance, updated_at, created_at, priority, status, ticket_type"},
+                    "sort_order": {"type": "string", "default": "desc", "description": "asc or desc"},
+                },
+                "required": ["query"],
+            }
+        ),
+        types.Tool(
+            name="get_user",
+            description="Get a Zendesk user by their ID. Use this to resolve requester_id or assignee_id from tickets.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_id": {"type": "integer", "description": "The user ID"}
+                },
+                "required": ["user_id"],
+            }
+        ),
+        types.Tool(
+            name="get_current_user",
+            description="Get the currently authenticated Zendesk user",
+            inputSchema={"type": "object", "properties": {}}
+        ),
+        types.Tool(
+            name="search_users",
+            description="Search Zendesk users by name, email, or external_id",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Name, email, or external_id to search for"}
+                },
+                "required": ["query"],
+            }
+        ),
+        # ── P1: Views, Fields, Orgs, Bulk ───────────────────────────
+        types.Tool(
+            name="list_views",
+            description="List all available Zendesk views (saved ticket queues)",
+            inputSchema={"type": "object", "properties": {}}
+        ),
+        types.Tool(
+            name="execute_view",
+            description="Execute a Zendesk view and return its tickets",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "view_id": {"type": "integer", "description": "The view ID to execute"},
+                    "page": {"type": "integer", "default": 1},
+                    "per_page": {"type": "integer", "default": 25},
+                },
+                "required": ["view_id"],
+            }
+        ),
+        types.Tool(
+            name="list_ticket_fields",
+            description="List all ticket fields (system + custom) with their types and valid options",
+            inputSchema={"type": "object", "properties": {}}
+        ),
+        types.Tool(
+            name="get_organization",
+            description="Get a Zendesk organization by its ID",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "organization_id": {"type": "integer", "description": "The organization ID"}
+                },
+                "required": ["organization_id"],
+            }
+        ),
+        types.Tool(
+            name="search_organizations",
+            description="Search Zendesk organizations by name",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {"type": "string", "description": "Organization name to search for"}
+                },
+                "required": ["query"],
+            }
+        ),
+        types.Tool(
+            name="get_tickets_bulk",
+            description="Fetch multiple tickets by IDs in a single request (max 100)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ticket_ids": {"type": "array", "items": {"type": "integer"}, "description": "List of ticket IDs"}
+                },
+                "required": ["ticket_ids"],
+            }
+        ),
+        # ── P2: Groups, Merge, Macros ───────────────────────────────
+        types.Tool(
+            name="list_groups",
+            description="List assignable Zendesk groups for ticket routing",
+            inputSchema={"type": "object", "properties": {}}
+        ),
+        types.Tool(
+            name="merge_tickets",
+            description="Merge source tickets into a target ticket",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "target_id": {"type": "integer", "description": "The ticket to merge into"},
+                    "source_ids": {"type": "array", "items": {"type": "integer"}, "description": "Tickets to merge from"},
+                    "target_comment": {"type": "string", "default": "Merged from related tickets."},
+                    "source_comment": {"type": "string", "default": "This ticket has been merged."},
+                },
+                "required": ["target_id", "source_ids"],
+            }
+        ),
+        types.Tool(
+            name="list_macros",
+            description="List available Zendesk macros (canned responses and actions)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "active_only": {"type": "boolean", "default": True}
+                },
+            }
+        ),
+        types.Tool(
+            name="apply_macro",
+            description="Preview the result of applying a macro to a ticket (does not save changes)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ticket_id": {"type": "integer", "description": "The ticket to apply the macro to"},
+                    "macro_id": {"type": "integer", "description": "The macro to apply"},
+                },
+                "required": ["ticket_id", "macro_id"],
+            }
+        ),
+        # ── P3: User Tickets, Forms, Delete ─────────────────────────
+        types.Tool(
+            name="get_user_tickets",
+            description="Get tickets for a specific user by role (requested, assigned, or ccd)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_id": {"type": "integer", "description": "The user ID"},
+                    "role": {"type": "string", "default": "requested", "description": "requested, assigned, or ccd"},
+                    "page": {"type": "integer", "default": 1},
+                    "per_page": {"type": "integer", "default": 25},
+                },
+                "required": ["user_id"],
+            }
+        ),
+        types.Tool(
+            name="list_ticket_forms",
+            description="List all ticket forms and their associated field IDs",
+            inputSchema={"type": "object", "properties": {}}
+        ),
+        types.Tool(
+            name="delete_ticket",
+            description="Permanently delete a Zendesk ticket. Use with caution.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ticket_id": {"type": "integer", "description": "The ticket ID to delete"}
+                },
+                "required": ["ticket_id"],
+            }
+        ),
     ]
 
 
@@ -366,6 +590,124 @@ async def handle_call_tool(
                 type="text",
                 text=json.dumps({"message": "Ticket updated successfully", "ticket": updated}, indent=2)
             )]
+
+        # ── P0: Search & Users ──────────────────────────────────────
+        elif name == "search":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            result = zendesk_client.search(
+                query=arguments["query"],
+                page=arguments.get("page", 1),
+                per_page=arguments.get("per_page", 25),
+                sort_by=arguments.get("sort_by", "relevance"),
+                sort_order=arguments.get("sort_order", "desc"),
+            )
+            return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
+        elif name == "get_user":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            user = zendesk_client.get_user(arguments["user_id"])
+            return [types.TextContent(type="text", text=json.dumps(user, indent=2))]
+
+        elif name == "get_current_user":
+            user = zendesk_client.get_current_user()
+            return [types.TextContent(type="text", text=json.dumps(user, indent=2))]
+
+        elif name == "search_users":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            users = zendesk_client.search_users(arguments["query"])
+            return [types.TextContent(type="text", text=json.dumps(users, indent=2))]
+
+        # ── P1: Views, Fields, Orgs, Bulk ───────────────────────────
+        elif name == "list_views":
+            views = zendesk_client.list_views()
+            return [types.TextContent(type="text", text=json.dumps(views, indent=2))]
+
+        elif name == "execute_view":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            result = zendesk_client.execute_view(
+                view_id=arguments["view_id"],
+                page=arguments.get("page", 1),
+                per_page=arguments.get("per_page", 25),
+            )
+            return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
+        elif name == "list_ticket_fields":
+            fields = zendesk_client.list_ticket_fields()
+            return [types.TextContent(type="text", text=json.dumps(fields, indent=2))]
+
+        elif name == "get_organization":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            org = zendesk_client.get_organization(arguments["organization_id"])
+            return [types.TextContent(type="text", text=json.dumps(org, indent=2))]
+
+        elif name == "search_organizations":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            orgs = zendesk_client.search_organizations(arguments["query"])
+            return [types.TextContent(type="text", text=json.dumps(orgs, indent=2))]
+
+        elif name == "get_tickets_bulk":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            tickets = zendesk_client.get_tickets_bulk(arguments["ticket_ids"])
+            return [types.TextContent(type="text", text=json.dumps(tickets, indent=2))]
+
+        # ── P2: Groups, Merge, Macros ───────────────────────────────
+        elif name == "list_groups":
+            groups = zendesk_client.list_groups()
+            return [types.TextContent(type="text", text=json.dumps(groups, indent=2))]
+
+        elif name == "merge_tickets":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            result = zendesk_client.merge_tickets(
+                target_id=arguments["target_id"],
+                source_ids=arguments["source_ids"],
+                target_comment=arguments.get("target_comment", "Merged from related tickets."),
+                source_comment=arguments.get("source_comment", "This ticket has been merged."),
+            )
+            return [types.TextContent(type="text", text=json.dumps({"message": "Tickets merged successfully", "result": result}, indent=2))]
+
+        elif name == "list_macros":
+            active_only = arguments.get("active_only", True) if arguments else True
+            macros = zendesk_client.list_macros(active_only=active_only)
+            return [types.TextContent(type="text", text=json.dumps(macros, indent=2))]
+
+        elif name == "apply_macro":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            result = zendesk_client.apply_macro(
+                ticket_id=arguments["ticket_id"],
+                macro_id=arguments["macro_id"],
+            )
+            return [types.TextContent(type="text", text=json.dumps({"message": "Macro preview (not saved)", "result": result}, indent=2))]
+
+        # ── P3: User Tickets, Forms, Delete ─────────────────────────
+        elif name == "get_user_tickets":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            result = zendesk_client.get_user_tickets(
+                user_id=arguments["user_id"],
+                role=arguments.get("role", "requested"),
+                page=arguments.get("page", 1),
+                per_page=arguments.get("per_page", 25),
+            )
+            return [types.TextContent(type="text", text=json.dumps(result, indent=2))]
+
+        elif name == "list_ticket_forms":
+            forms = zendesk_client.list_ticket_forms()
+            return [types.TextContent(type="text", text=json.dumps(forms, indent=2))]
+
+        elif name == "delete_ticket":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            zendesk_client.delete_ticket(arguments["ticket_id"])
+            return [types.TextContent(type="text", text=json.dumps({"message": f"Ticket {arguments['ticket_id']} deleted successfully"}))]
 
         else:
             raise ValueError(f"Unknown tool: {name}")
