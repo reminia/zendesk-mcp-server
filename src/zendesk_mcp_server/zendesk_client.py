@@ -1,11 +1,18 @@
 from typing import Dict, Any, List
 import json
 import urllib.parse
+from urllib.parse import urlparse
 import base64
 import logging
 import requests as _requests
 
 logger = logging.getLogger("zendesk-mcp-server")
+
+# Allowlisted values for ticket query parameters
+_ALLOWED_SORT_BY_TICKETS = {'created_at', 'updated_at', 'priority', 'status'}
+_ALLOWED_SORT_BY_SEARCH = {'relevance', 'updated_at', 'created_at', 'priority', 'status', 'ticket_type'}
+_ALLOWED_SORT_ORDER = {'asc', 'desc'}
+_ALLOWED_USER_TICKET_ROLES = {'requested', 'assigned', 'ccd'}
 
 
 class ZendeskClient:
@@ -147,20 +154,42 @@ class ZendeskClient:
     # 10 MB hard cap to guard against image bombs and token budget blowout.
     _MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024
 
+    # Allowed host suffixes for attachment fetching.
+    _ALLOWED_ATTACHMENT_HOST_SUFFIXES = ('.zendesk.com', '.zdusercontent.com')
+
+    def _validate_attachment_url(self, content_url: str) -> None:
+        """Validate that an attachment URL points to a Zendesk-owned domain."""
+        parsed = urlparse(content_url)
+        if parsed.scheme != 'https':
+            raise ValueError(
+                f"Attachment URL must use HTTPS, got '{parsed.scheme}'."
+            )
+        host = parsed.hostname or ''
+        if not any(host == suffix.lstrip('.') or host.endswith(suffix)
+                   for suffix in self._ALLOWED_ATTACHMENT_HOST_SUFFIXES):
+            raise ValueError(
+                f"Attachment URL host '{host}' is not an allowed Zendesk domain. "
+                f"Allowed: {self._ALLOWED_ATTACHMENT_HOST_SUFFIXES}"
+            )
+
     def get_ticket_attachment(self, content_url: str) -> Dict[str, Any]:
         """
         Fetch an image attachment and return base64-encoded data.
 
         Security measures applied:
+        - Host allowlist: only *.zendesk.com and *.zdusercontent.com are permitted.
+        - HTTPS required: plaintext HTTP is rejected.
         - Allowlist of safe image MIME types (no SVG or arbitrary binary).
         - Magic byte validation so the file header must match the declared type.
         - 10 MB size cap to prevent image bombs and excessive token usage.
 
         Zendesk attachment URLs redirect to zdusercontent.com (Zendesk's CDN).
         requests strips the Authorization header on cross-origin redirects,
-        which is required — the CDN returns 403 if it receives an auth header.
+        which is required -- the CDN returns 403 if it receives an auth header.
         """
         try:
+            self._validate_attachment_url(content_url)
+
             response = self._session.get(
                 content_url,
                 timeout=30,
@@ -242,6 +271,16 @@ class ZendeskClient:
         try:
             # Cap at reasonable limit
             per_page = min(per_page, 100)
+
+            # Validate sort parameters against allowlist
+            if sort_by not in _ALLOWED_SORT_BY_TICKETS:
+                raise ValueError(
+                    f"Invalid sort_by '{sort_by}'. Allowed: {sorted(_ALLOWED_SORT_BY_TICKETS)}"
+                )
+            if sort_order not in _ALLOWED_SORT_ORDER:
+                raise ValueError(
+                    f"Invalid sort_order '{sort_order}'. Allowed: {sorted(_ALLOWED_SORT_ORDER)}"
+                )
 
             params = urllib.parse.urlencode({
                 'page': str(page),
@@ -407,6 +446,14 @@ class ZendeskClient:
         """Search tickets, users, orgs using Zendesk Query Language (ZQL)."""
         try:
             per_page = min(per_page, 100)
+            if sort_by not in _ALLOWED_SORT_BY_SEARCH:
+                raise ValueError(
+                    f"Invalid sort_by '{sort_by}'. Allowed: {sorted(_ALLOWED_SORT_BY_SEARCH)}"
+                )
+            if sort_order not in _ALLOWED_SORT_ORDER:
+                raise ValueError(
+                    f"Invalid sort_order '{sort_order}'. Allowed: {sorted(_ALLOWED_SORT_ORDER)}"
+                )
             params = urllib.parse.urlencode({
                 'query': query, 'page': str(page),
                 'per_page': str(per_page),
@@ -628,6 +675,10 @@ class ZendeskClient:
                          page: int = 1, per_page: int = 25) -> Dict[str, Any]:
         """Get tickets for a user. role: 'requested', 'assigned', or 'ccd'."""
         try:
+            if role not in _ALLOWED_USER_TICKET_ROLES:
+                raise ValueError(
+                    f"Invalid role '{role}'. Allowed: {sorted(_ALLOWED_USER_TICKET_ROLES)}"
+                )
             per_page = min(per_page, 100)
             params = urllib.parse.urlencode({'page': str(page), 'per_page': str(per_page)})
             data = self._api_get(f"users/{user_id}/tickets/{role}.json?{params}")

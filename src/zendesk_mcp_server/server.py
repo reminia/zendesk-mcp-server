@@ -712,10 +712,18 @@ async def handle_call_tool(
         else:
             raise ValueError(f"Unknown tool: {name}")
 
-    except Exception as e:
+    except ValueError as e:
+        # ValueError is raised by our own validation -- safe to return
         return [types.TextContent(
             type="text",
-            text=f"Error: {str(e)}"
+            text=f"Validation error: {str(e)}"
+        )]
+    except Exception as e:
+        # Log full error server-side, return sanitized message to client
+        logger.error(f"Tool '{name}' failed: {str(e)}")
+        return [types.TextContent(
+            type="text",
+            text=f"Error executing '{name}'. Check server logs for details."
         )]
 
 
