@@ -1,162 +1,141 @@
 # Zendesk MCP Server
 
-![ci](https://github.com/reminia/zendesk-mcp-server/actions/workflows/ci.yml/badge.svg)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 
-A Model Context Protocol server for Zendesk.
+A [Model Context Protocol](https://modelcontextprotocol.io/) server for Zendesk, maintained by [Alternative Payments](https://github.com/getalternative). Security-patched fork of [reminia/zendesk-mcp-server](https://github.com/reminia/zendesk-mcp-server).
 
-This server provides a comprehensive integration with Zendesk. It offers:
+## What It Does
 
-- Tools for retrieving and managing Zendesk tickets and comments
-- Specialized prompts for ticket analysis and response drafting
-- Full access to the Zendesk Help Center articles as knowledge base
-
-![demo](https://res.cloudinary.com/leecy-me/image/upload/v1736410626/open/zendesk_yunczu.gif)
+Connects Claude (or any MCP client) to your Zendesk instance with **24 tools**, prompt templates, and knowledge base access.
 
 ## Setup
 
-- build: `uv venv && uv pip install -e .` or `uv build` in short.
-- setup zendesk credentials in `.env` file, refer to [.env.example](.env.example).
-- configure in Claude desktop:
+### 1. Install
 
-```json
-{
-  "mcpServers": {
-      "zendesk": {
-          "command": "uv",
-          "args": [
-              "--directory",
-              "/path/to/zendesk-mcp-server",
-              "run",
-              "zendesk"
-          ]
-      }
-  }
-}
+```bash
+uv venv && uv pip install -e .
 ```
 
-### Docker
+### 2. Configure credentials
 
-You can containerize the server if you prefer an isolated runtime:
+Copy `.env.example` to `.env` and configure one of the auth methods:
 
-1. Copy `.env.example` to `.env` and fill in your Zendesk credentials. Keep this file outside version control.
-2. Build the image:
+**Option A -- API token (recommended for team use):**
+```env
+ZENDESK_SUBDOMAIN=yourcompany
+ZENDESK_EMAIL=you@company.com
+ZENDESK_API_KEY=your_api_token
+```
 
-   ```bash
-   docker build -t zendesk-mcp-server .
-   ```
+**Option B -- OAuth:**
+```env
+ZENDESK_SUBDOMAIN=yourcompany
+```
+Then run `zendesk-auth` to authenticate via browser. The token is saved to `.zendesk_token`.
 
-3. Run the server, providing the environment file:
+**Option C -- Session cookie:**
+```env
+ZENDESK_SUBDOMAIN=yourcompany
+ZENDESK_SESSION_COOKIE=your_session_cookie
+```
 
-   ```bash
-   docker run --rm --env-file /path/to/.env zendesk-mcp-server
-   ```
+### 3. Configure MCP client
 
-   Add `-i` when wiring the container to MCP clients over STDIN/STDOUT (Claude Code uses this mode). For daemonized runs, add `-d --name zendesk-mcp`.
-
-The image installs dependencies from `requirements.lock`, drops privileges to a non-root user, and expects configuration exclusively via environment variables.
-
-#### Claude MCP Integration
-
-To use the Dockerized server from Claude Code/Desktop, add an entry to Claude Code's `settings.json` similar to:
-
+**Claude Code** (`settings.json`):
 ```json
 {
   "mcpServers": {
     "zendesk": {
-      "command": "/usr/local/bin/docker",
+      "command": "uv",
       "args": [
+        "--directory",
+        "/path/to/zendesk-mcp-server",
         "run",
-        "--rm",
-        "-i",
-        "--env-file",
-        "/path/to/zendesk-mcp-server/.env",
-        "zendesk-mcp-server"
+        "zendesk"
       ]
     }
   }
 }
 ```
 
-Adjust the paths to match your environment. After saving the file, restart Claude for the new MCP server to be detected.
+### Docker
+
+```bash
+docker build -t zendesk-mcp-server .
+docker run --rm -i --env-file /path/to/.env zendesk-mcp-server
+```
+
+The image uses `python:3.12-slim`, installs from pinned `requirements.lock`, and runs as a non-root user.
+
+## Tools (24)
+
+### Tickets
+| Tool | Description |
+|---|---|
+| `get_ticket` | Get a ticket by ID |
+| `get_tickets` | List tickets with pagination and sorting |
+| `get_tickets_bulk` | Fetch up to 100 tickets by IDs |
+| `create_ticket` | Create a new ticket |
+| `update_ticket` | Update ticket fields (status, priority, assignee, etc.) |
+| `delete_ticket` | Permanently delete a ticket |
+| `merge_tickets` | Merge source tickets into a target |
+| `get_ticket_comments` | Get all comments on a ticket |
+| `create_ticket_comment` | Add a comment to a ticket |
+| `get_ticket_attachment` | Fetch an image attachment as base64 |
+
+### Search
+| Tool | Description |
+|---|---|
+| `search` | Full-text search via Zendesk Query Language (ZQL) |
+
+### Users
+| Tool | Description |
+|---|---|
+| `get_user` | Get user by ID (resolve requester/assignee) |
+| `get_current_user` | Get the authenticated user |
+| `search_users` | Search users by name/email |
+| `get_user_tickets` | Get tickets by user role (requested/assigned/ccd) |
+
+### Organizations
+| Tool | Description |
+|---|---|
+| `get_organization` | Get org by ID |
+| `search_organizations` | Search orgs by name |
+
+### Views & Fields
+| Tool | Description |
+|---|---|
+| `list_views` | List saved ticket queues |
+| `execute_view` | Run a view and get its tickets |
+| `list_ticket_fields` | List all ticket fields with valid options |
+| `list_ticket_forms` | List ticket forms and field mappings |
+
+### Groups & Macros
+| Tool | Description |
+|---|---|
+| `list_groups` | List assignable groups |
+| `list_macros` | List available macros |
+| `apply_macro` | Preview macro effect on a ticket |
 
 ## Resources
 
-- zendesk://knowledge-base, get access to the whole help center articles.
+- `zendesk://knowledge-base` -- full Help Center articles, cached for 1 hour
 
 ## Prompts
 
-### analyze-ticket
+- **analyze-ticket** -- analyze a ticket with summary, timeline, and insights
+- **draft-ticket-response** -- draft a professional response to a ticket
 
-Analyze a Zendesk ticket and provide a detailed analysis of the ticket.
+## Security Patches
 
-### draft-ticket-response
+This fork includes the following security fixes not present in the upstream repo:
 
-Draft a response to a Zendesk ticket.
+- **SSRF/credential exfiltration fix**: `get_ticket_attachment` validates URLs against an allowlist (`*.zendesk.com`, `*.zdusercontent.com`) and requires HTTPS before sending auth headers
+- **Input validation**: `sort_by`, `sort_order`, and `role` parameters validated against strict allowlists
+- **Error sanitization**: Tool errors are logged server-side; only generic messages returned to MCP clients
+- **XSS hardening**: OAuth callback page uses safe DOM manipulation (`textContent`) instead of `innerHTML`
+- **Command injection prevention**: Windows browser launch uses direct executable paths instead of `cmd /c start`
 
-## Tools
+## License
 
-### get_tickets
-
-Fetch the latest tickets with pagination support
-
-- Input:
-  - `page` (integer, optional): Page number (defaults to 1)
-  - `per_page` (integer, optional): Number of tickets per page, max 100 (defaults to 25)
-  - `sort_by` (string, optional): Field to sort by - created_at, updated_at, priority, or status (defaults to created_at)
-  - `sort_order` (string, optional): Sort order - asc or desc (defaults to desc)
-
-- Output: Returns a list of tickets with essential fields including id, subject, status, priority, description, timestamps, and assignee information, along with pagination metadata
-
-### get_ticket
-
-Retrieve a Zendesk ticket by its ID
-
-- Input:
-  - `ticket_id` (integer): The ID of the ticket to retrieve
-
-### get_ticket_comments
-
-Retrieve all comments for a Zendesk ticket by its ID
-
-- Input:
-  - `ticket_id` (integer): The ID of the ticket to get comments for
-
-### create_ticket_comment
-
-Create a new comment on an existing Zendesk ticket
-
-- Input:
-  - `ticket_id` (integer): The ID of the ticket to comment on
-  - `comment` (string): The comment text/content to add
-  - `public` (boolean, optional): Whether the comment should be public (defaults to true)
-
-### create_ticket
-
-Create a new Zendesk ticket
-
-- Input:
-  - `subject` (string): Ticket subject
-  - `description` (string): Ticket description
-  - `requester_id` (integer, optional)
-  - `assignee_id` (integer, optional)
-  - `priority` (string, optional): one of `low`, `normal`, `high`, `urgent`
-  - `type` (string, optional): one of `problem`, `incident`, `question`, `task`
-  - `tags` (array[string], optional)
-  - `custom_fields` (array[object], optional)
-
-### update_ticket
-
-Update fields on an existing Zendesk ticket (e.g., status, priority, assignee)
-
-- Input:
-  - `ticket_id` (integer): The ID of the ticket to update
-  - `subject` (string, optional)
-  - `status` (string, optional): one of `new`, `open`, `pending`, `on-hold`, `solved`, `closed`
-  - `priority` (string, optional): one of `low`, `normal`, `high`, `urgent`
-  - `type` (string, optional)
-  - `assignee_id` (integer, optional)
-  - `requester_id` (integer, optional)
-  - `tags` (array[string], optional)
-  - `custom_fields` (array[object], optional)
-  - `due_at` (string, optional): ISO8601 datetime
+Apache 2.0

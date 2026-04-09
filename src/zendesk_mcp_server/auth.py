@@ -82,17 +82,29 @@ function submitUrl() {{
     fetch('/callback?url=' + encodeURIComponent(url))
         .then(r => r.json())
         .then(function(data) {{
+            var resultDiv = document.getElementById('result');
             if (data.ok) {{
-                document.getElementById('result').innerHTML =
-                    '<h2>&#9989; Authentication successful!</h2>' +
-                    '<p>Welcome, ' + (data.username || 'agent') + '! You can close this tab.</p>';
+                resultDiv.textContent = '';
+                var h = document.createElement('h2');
+                h.textContent = '\u2705 Authentication successful!';
+                var p = document.createElement('p');
+                p.textContent = 'Welcome, ' + (data.username || 'agent') + '! You can close this tab.';
+                resultDiv.appendChild(h);
+                resultDiv.appendChild(p);
             }} else {{
-                document.getElementById('result').innerHTML =
-                    '<h2 style="color:#c62828">&#10060; Authentication failed</h2>' +
-                    '<p>' + (data.error || 'Could not parse token from URL.') + '</p>' +
-                    '<p>Make sure you copied the full URL starting with zendesk-support://</p>';
+                resultDiv.textContent = '';
+                var h = document.createElement('h2');
+                h.style.color = '#c62828';
+                h.textContent = '\u274c Authentication failed';
+                var p1 = document.createElement('p');
+                p1.textContent = data.error || 'Could not parse token from URL.';
+                var p2 = document.createElement('p');
+                p2.textContent = 'Make sure you copied the full URL starting with zendesk-support://';
+                resultDiv.appendChild(h);
+                resultDiv.appendChild(p1);
+                resultDiv.appendChild(p2);
                 document.getElementById('steps').style.display = 'block';
-                document.getElementById('result').style.display = 'none';
+                resultDiv.style.display = 'none';
             }}
         }});
 }}
@@ -255,16 +267,26 @@ def _open_in_private_window(url: str) -> bool:
                 except FileNotFoundError:
                     continue
         elif sys.platform == "win32":
-            for args in [
-                ["cmd", "/c", "start", "msedge", "--inprivate", url],
-                ["cmd", "/c", "start", "chrome", "--incognito", url],
-                ["cmd", "/c", "start", "firefox", "--private-window", url],
+            # Avoid cmd /c start -- cmd.exe interprets shell metacharacters
+            # in arguments even when passed as a list. Use direct executable
+            # paths instead, which bypass cmd.exe entirely.
+            import shutil as _shutil
+            for exe, flags in [
+                ("msedge", ["--inprivate"]),
+                ("chrome", ["--incognito"]),
+                ("firefox", ["--private-window"]),
             ]:
-                try:
-                    subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    return True
-                except FileNotFoundError:
-                    continue
+                exe_path = _shutil.which(exe)
+                if exe_path:
+                    try:
+                        subprocess.Popen(
+                            [exe_path] + flags + [url],
+                            stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL,
+                        )
+                        return True
+                    except OSError:
+                        continue
     except Exception as e:
         logger.warning(f"Failed to open private window: {e}")
     return False
