@@ -1,13 +1,33 @@
 from typing import Dict, Any, List
 import json
+import re
 import urllib.request
 import urllib.parse
 import base64
+from html import escape as _html_escape
 import requests as _requests
 
 from zenpy import Zenpy
 from zenpy.lib.api_objects import Comment
 from zenpy.lib.api_objects import Ticket as ZenpyTicket
+
+
+_HTML_TAG_RE = re.compile(r"<\s*(p|br|div|ul|ol|li|h[1-6]|pre|code|blockquote|table|a|strong|em|b|i|span)\b", re.IGNORECASE)
+
+
+def _looks_like_html(text: str) -> bool:
+    return bool(_HTML_TAG_RE.search(text))
+
+
+def _plaintext_to_html(text: str) -> str:
+    """Convert plaintext to HTML preserving paragraph and line breaks."""
+    paragraphs = re.split(r"\n\s*\n", text.strip())
+    html_paragraphs = []
+    for p in paragraphs:
+        escaped = _html_escape(p)
+        with_breaks = escaped.replace("\n", "<br>\n")
+        html_paragraphs.append(f"<p>{with_breaks}</p>")
+    return "\n".join(html_paragraphs)
 
 
 class ZendeskClient:
@@ -161,11 +181,15 @@ class ZendeskClient:
     def post_comment(self, ticket_id: int, comment: str, public: bool = True) -> str:
         """
         Post a comment to an existing ticket.
+
+        Plaintext input is converted to HTML so that newlines/paragraphs render
+        correctly. Input that already contains HTML tags is passed through as-is.
         """
         try:
+            html_body = comment if _looks_like_html(comment) else _plaintext_to_html(comment)
             ticket = self.client.tickets(id=ticket_id)
             ticket.comment = Comment(
-                html_body=comment,
+                html_body=html_body,
                 public=public
             )
             self.client.tickets.update(ticket)
