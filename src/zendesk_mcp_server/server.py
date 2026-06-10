@@ -226,6 +226,20 @@ async def handle_list_tools() -> list[types.Tool]:
             }
         ),
         types.Tool(
+            name="get_ticket_attachment",
+            description="Fetch a Zendesk ticket attachment by its content_url and return the file as base64-encoded data. Use the attachment URLs returned by get_ticket_comments.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "content_url": {
+                        "type": "string",
+                        "description": "The content_url of the attachment from get_ticket_comments"
+                    }
+                },
+                "required": ["content_url"]
+            }
+        ),
+        types.Tool(
             name="update_ticket",
             description="Update fields on an existing Zendesk ticket (e.g., status, priority, assignee_id)",
             inputSchema={
@@ -368,6 +382,23 @@ async def handle_call_tool(
                 type="text",
                 text=f"Comment created successfully: {result}"
             )]
+
+        elif name == "get_ticket_attachment":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            result = zendesk_client.get_ticket_attachment(arguments["content_url"])
+            content_type = result["content_type"]
+            if content_type.startswith("image/"):
+                return [types.ImageContent(
+                    type="image",
+                    data=result["data"],
+                    mimeType=content_type,
+                )]
+            else:
+                return [types.TextContent(
+                    type="text",
+                    text=json.dumps({"content_type": content_type, "data_base64": result["data"]})
+                )]
 
         elif name == "update_ticket":
             if not arguments:
