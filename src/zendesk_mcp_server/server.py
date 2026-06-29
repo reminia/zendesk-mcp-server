@@ -10,6 +10,10 @@ from mcp.server import InitializationOptions, NotificationOptions
 from mcp.server import Server, types
 from mcp.server.stdio import stdio_server
 from pydantic import AnyUrl
+from pydantic import ValidationError
+
+from mcp.shared.session import BaseSession, RequestResponder
+from mcp.types import JSONRPCNotification, JSONRPCRequest
 
 from zendesk_mcp_server.zendesk_client import ZendeskClient
 
@@ -27,6 +31,82 @@ zendesk_client = ZendeskClient(
     email=os.getenv("ZENDESK_EMAIL"),
     token=os.getenv("ZENDESK_API_KEY")
 )
+
+#
+# Monkey-patch MCP SDK's _receive_loop to handle unrecognised notifications/requests
+# (e.g. notifications/cancelled) that would otherwise crash the server.
+#
+# To remove: once the MCP SDK (v1.1.2+) adds proper error handling around
+# model_validate() in BaseSession._receive_loop, delete the _patched_receive_loop
+# function below and the BaseSession._receive_loop = _patched_receive_loop line
+# at the end. Keep _original_receive_loop if you want to fall back, or delete
+# it too.
+#
+_original_receive_loop = BaseSession._receive_loop
+
+
+async def _patched_receive_loop(self):
+    try:
+        async with (
+            self._read_stream,
+            self._write_stream,
+            self._incoming_message_stream_writer,
+        ):
+            async for message in self._read_stream:
+                try:
+                    if isinstance(message, Exception):
+                        await self._incoming_message_stream_writer.send(message)
+                    elif isinstance(message.root, JSONRPCRequest):
+                        validated_request = self._receive_request_type.model_validate(
+                            message.root.model_dump(
+                                by_alias=True, mode="json", exclude_none=True
+                            )
+                        )
+                        responder = RequestResponder(
+                            request_id=message.root.id,
+                            request_meta=validated_request.root.params._meta
+                            if validated_request.root.params
+                            else None,
+                            request=validated_request,
+                            session=self,
+                        )
+                        await self._received_request(responder)
+                        if not responder._responded:
+                            await self._incoming_message_stream_writer.send(responder)
+                    elif isinstance(message.root, JSONRPCNotification):
+                        notification = self._receive_notification_type.model_validate(
+                            message.root.model_dump(
+                                by_alias=True, mode="json", exclude_none=True
+                            )
+                        )
+                        await self._received_notification(notification)
+                        await self._incoming_message_stream_writer.send(notification)
+                    else:
+                        stream = self._response_streams.pop(message.root.id, None)
+                        if stream:
+                            await stream.send(message.root)
+                        else:
+                            await self._incoming_message_stream_writer.send(
+                                RuntimeError(
+                                    "Received response with an unknown "
+                                    f"request ID: {message}"
+                                )
+                            )
+                except ValidationError as e:
+                    logger.warning(
+                        "Skipping unparseable message (method=%s): %s",
+                        getattr(message.root, "method", "<unknown>"), e
+                    )
+                except Exception:
+                    logger.exception("Unhandled error in _receive_loop, continuing")
+    except Exception:
+        logger.exception("Fatal error in _receive_loop, exiting receive loop")
+
+
+# Swap in our patched version. Delete this line (and the function above) once the
+# SDK adds its own error handling around model_validate() — check the CHANGELOG
+# for "notifications/cancelled" or "ValidationError" fixes in _receive_loop.
+BaseSession._receive_loop = _patched_receive_loop
 
 server = Server("Zendesk Server")
 
@@ -240,6 +320,15 @@ async def handle_list_tools() -> list[types.Tool]:
             }
         ),
         types.Tool(
+            name="get_ticket_fields",
+            description="Fetch all ticket fields (system + custom) including their id, title, type, and dropdown options",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
+        types.Tool(
             name="update_ticket",
             description="Update fields on an existing Zendesk ticket (e.g., status, priority, assignee_id)",
             inputSchema={
@@ -353,6 +442,13 @@ async def handle_call_tool(
                     type="text",
                     text=json.dumps({"content_type": content_type, "data_base64": result["data"]})
                 )]
+
+        elif name == "get_ticket_fields":
+            fields = zendesk_client.get_ticket_fields()
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(fields, indent=2)
+            )]
 
         elif name == "update_ticket":
             if not arguments:

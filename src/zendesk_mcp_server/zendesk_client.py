@@ -1,5 +1,6 @@
 from typing import Dict, Any, List
 import json
+import threading
 import urllib.request
 import urllib.parse
 import base64
@@ -21,6 +22,8 @@ class ZendeskClient:
             token=token
         )
 
+        self._lock = threading.Lock()
+
         # For direct API calls
         self.subdomain = subdomain
         self.email = email
@@ -31,12 +34,23 @@ class ZendeskClient:
         encoded_credentials = base64.b64encode(credentials.encode()).decode('ascii')
         self.auth_header = f"Basic {encoded_credentials}"
 
+    @staticmethod
+    def _serialize_custom_fields(custom_fields: Any) -> List[Dict[str, Any]]:
+        if not custom_fields:
+            return []
+        return [
+            {'id': getattr(cf, 'id', cf.get('id')), 'value': getattr(cf, 'value', cf.get('value'))}
+            if isinstance(cf, dict) else {'id': cf.id, 'value': cf.value}
+            for cf in custom_fields
+        ]
+
     def get_ticket(self, ticket_id: int) -> Dict[str, Any]:
         """
         Query a ticket by its ID
         """
         try:
-            ticket = self.client.tickets(id=ticket_id)
+            with self._lock:
+                ticket = self.client.tickets(id=ticket_id)
             return {
                 'id': ticket.id,
                 'subject': ticket.subject,
@@ -47,7 +61,10 @@ class ZendeskClient:
                 'updated_at': str(ticket.updated_at),
                 'requester_id': ticket.requester_id,
                 'assignee_id': ticket.assignee_id,
-                'organization_id': ticket.organization_id
+                'organization_id': ticket.organization_id,
+                'custom_fields': self._serialize_custom_fields(
+                    getattr(ticket, 'custom_fields', []) or []
+                ),
             }
         except Exception as e:
             raise Exception(f"Failed to get ticket {ticket_id}: {str(e)}")
@@ -57,7 +74,8 @@ class ZendeskClient:
         Get all comments for a specific ticket, including attachment metadata.
         """
         try:
-            comments = self.client.tickets.comments(ticket=ticket_id)
+            with self._lock:
+                comments = self.client.tickets.comments(ticket=ticket_id)
             result = []
             for comment in comments:
                 attachments = []
@@ -163,12 +181,13 @@ class ZendeskClient:
         Post a comment to an existing ticket.
         """
         try:
-            ticket = self.client.tickets(id=ticket_id)
-            ticket.comment = Comment(
-                html_body=comment,
-                public=public
-            )
-            self.client.tickets.update(ticket)
+            with self._lock:
+                ticket = self.client.tickets(id=ticket_id)
+                ticket.comment = Comment(
+                    html_body=comment,
+                    public=public
+                )
+                self.client.tickets.update(ticket)
             return comment
         except Exception as e:
             raise Exception(f"Failed to post comment on ticket {ticket_id}: {str(e)}")
@@ -223,7 +242,8 @@ class ZendeskClient:
                     'created_at': ticket.get('created_at'),
                     'updated_at': ticket.get('updated_at'),
                     'requester_id': ticket.get('requester_id'),
-                    'assignee_id': ticket.get('assignee_id')
+                    'assignee_id': ticket.get('assignee_id'),
+                    'custom_fields': ticket.get('custom_fields', []),
                 })
 
             return {
@@ -243,30 +263,80 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to get latest tickets: {str(e)}")
 
+    def get_ticket_fields(self) -> List[Dict[str, Any]]:
+        """
+        Fetch all ticket fields (system + custom) using direct API.
+
+        Returns each field's id, title, type, description, required status,
+        active status, and (for dropdowns) the available custom_field_options.
+        """
+        try:
+            url = f"{self.base_url}/ticket_fields.json"
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', self.auth_header)
+            req.add_header('Content-Type', 'application/json')
+
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+
+            fields = data.get('ticket_fields', [])
+            result = []
+            for field in fields:
+                entry = {
+                    'id': field.get('id'),
+                    'title': field.get('title'),
+                    'type': field.get('type'),
+                    'description': field.get('description', ''),
+                    'active': field.get('active', False),
+                    'required': field.get('required', False),
+                    'position': field.get('position'),
+                    'visible_in_portal': field.get('visible_in_portal', False),
+                    'agent_can_edit': field.get('agent_can_edit', True),
+                }
+                # Include dropdown options if present (custom_field_options)
+                options = field.get('custom_field_options')
+                if options:
+                    entry['options'] = [
+                        {
+                            'id': o.get('id'),
+                            'name': o.get('name'),
+                            'value': o.get('value'),
+                            'position': o.get('position', 0),
+                        }
+                        for o in options
+                    ]
+                result.append(entry)
+            return result
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else "No response body"
+            raise Exception(f"Failed to get ticket fields: HTTP {e.code} - {e.reason}. {error_body}")
+        except Exception as e:
+            raise Exception(f"Failed to get ticket fields: {str(e)}")
+
     def get_all_articles(self) -> Dict[str, Any]:
         """
         Fetch help center articles as knowledge base.
         Returns a Dict of section -> [article].
         """
         try:
-            # Get all sections
-            sections = self.client.help_center.sections()
+            with self._lock:
+                sections = self.client.help_center.sections()
 
-            # Get articles for each section
-            kb = {}
-            for section in sections:
-                articles = self.client.help_center.sections.articles(section.id)
-                kb[section.name] = {
-                    'section_id': section.id,
-                    'description': section.description,
-                    'articles': [{
-                        'id': article.id,
-                        'title': article.title,
-                        'body': article.body,
-                        'updated_at': str(article.updated_at),
-                        'url': article.html_url
-                    } for article in articles]
-                }
+                # Get articles for each section
+                kb = {}
+                for section in sections:
+                    articles = self.client.help_center.sections.articles(section.id)
+                    kb[section.name] = {
+                        'section_id': section.id,
+                        'description': section.description,
+                        'articles': [{
+                            'id': article.id,
+                            'title': article.title,
+                            'body': article.body,
+                            'updated_at': str(article.updated_at),
+                            'url': article.html_url
+                        } for article in articles]
+                    }
 
             return kb
         except Exception as e:
@@ -297,25 +367,26 @@ class ZendeskClient:
             custom_fields: Optional list of dicts: {id: int, value: Any}
         """
         try:
-            ticket = ZenpyTicket(
-                subject=subject,
-                description=description,
-                requester_id=requester_id,
-                assignee_id=assignee_id,
-                priority=priority,
-                type=type,
-                tags=tags,
-                custom_fields=custom_fields,
-            )
-            created_audit = self.client.tickets.create(ticket)
-            # Fetch created ticket id from audit
-            created_ticket_id = getattr(getattr(created_audit, 'ticket', None), 'id', None)
-            if created_ticket_id is None:
-                # Fallback: try to read id from audit events
-                created_ticket_id = getattr(created_audit, 'id', None)
+            with self._lock:
+                ticket = ZenpyTicket(
+                    subject=subject,
+                    description=description,
+                    requester_id=requester_id,
+                    assignee_id=assignee_id,
+                    priority=priority,
+                    type=type,
+                    tags=tags,
+                    custom_fields=custom_fields,
+                )
+                created_audit = self.client.tickets.create(ticket)
+                # Fetch created ticket id from audit
+                created_ticket_id = getattr(getattr(created_audit, 'ticket', None), 'id', None)
+                if created_ticket_id is None:
+                    # Fallback: try to read id from audit events
+                    created_ticket_id = getattr(created_audit, 'id', None)
 
-            # Fetch full ticket to return consistent data
-            created = self.client.tickets(id=created_ticket_id) if created_ticket_id else None
+                # Fetch full ticket to return consistent data
+                created = self.client.tickets(id=created_ticket_id) if created_ticket_id else None
 
             return {
                 'id': getattr(created, 'id', created_ticket_id),
@@ -330,6 +401,9 @@ class ZendeskClient:
                 'assignee_id': getattr(created, 'assignee_id', assignee_id),
                 'organization_id': getattr(created, 'organization_id', None),
                 'tags': list(getattr(created, 'tags', tags or []) or []),
+                'custom_fields': self._serialize_custom_fields(
+                    getattr(created, 'custom_fields', []) or []
+                ),
             }
         except Exception as e:
             raise Exception(f"Failed to create ticket: {str(e)}")
@@ -343,18 +417,18 @@ class ZendeskClient:
         tags (list[str]), custom_fields (list[dict]), due_at, etc.
         """
         try:
-            # Load the ticket, mutate fields directly, and update
-            ticket = self.client.tickets(id=ticket_id)
-            for key, value in fields.items():
-                if value is None:
-                    continue
-                setattr(ticket, key, value)
+            with self._lock:
+                ticket = self.client.tickets(id=ticket_id)
+                for key, value in fields.items():
+                    if value is None:
+                        continue
+                    setattr(ticket, key, value)
 
-            # This call returns a TicketAudit (not a Ticket). Don't read attrs from it.
-            self.client.tickets.update(ticket)
+                # This call returns a TicketAudit (not a Ticket). Don't read attrs from it.
+                self.client.tickets.update(ticket)
 
-            # Fetch the fresh ticket to return consistent data
-            refreshed = self.client.tickets(id=ticket_id)
+                # Fetch the fresh ticket to return consistent data
+                refreshed = self.client.tickets(id=ticket_id)
 
             return {
                 'id': refreshed.id,
@@ -369,6 +443,9 @@ class ZendeskClient:
                 'assignee_id': refreshed.assignee_id,
                 'organization_id': refreshed.organization_id,
                 'tags': list(getattr(refreshed, 'tags', []) or []),
+                'custom_fields': self._serialize_custom_fields(
+                    getattr(refreshed, 'custom_fields', []) or []
+                ),
             }
         except Exception as e:
             raise Exception(f"Failed to update ticket {ticket_id}: {str(e)}")

@@ -1,3 +1,4 @@
+> This is a fork from reminia/zendesk-mcp-server. All credits go to [reminia](https://github.com/reminia)/.
 # Zendesk MCP Server
 
 ![ci](https://github.com/reminia/zendesk-mcp-server/actions/workflows/ci.yml/badge.svg)
