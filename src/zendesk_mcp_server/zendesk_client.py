@@ -5,9 +5,34 @@ import urllib.parse
 import base64
 import requests as _requests
 
+from markdown_it import MarkdownIt
 from zenpy import Zenpy
 from zenpy.lib.api_objects import Comment
 from zenpy.lib.api_objects import Ticket as ZenpyTicket
+
+# CommonMark renderer used for ticket comments.
+#   breaks=True -> a single newline becomes <br>, so plain text and
+#                  soft-wrapped prose keep their line breaks.
+#   html=True   -> raw HTML embedded in the input is passed through rather
+#                  than escaped, so a caller can still hand-write HTML.
+#                  Zendesk sanitizes html_body server-side (stripping scripts,
+#                  event handlers, etc.), which is the safety boundary.
+# table/strikethrough are enabled because agents commonly use them.
+_MD = MarkdownIt("commonmark", {"breaks": True, "html": True}).enable(["table", "strikethrough"])
+
+
+def markdown_to_html(text: str) -> str:
+    """
+    Render Markdown (or plain text) to the HTML that Zendesk stores as html_body.
+
+    Zendesk renders a comment's html_body as HTML, which collapses runs of
+    whitespace, so plain text posted verbatim loses all its newlines and any
+    Markdown appears as literal characters. Rendering here keeps both intact:
+    newlines survive (breaks=True) and Markdown syntax (bold, lists, links,
+    code, tables) becomes real HTML. Raw HTML in the input is preserved and
+    left for Zendesk to sanitize.
+    """
+    return _MD.render(text or "")
 
 
 class ZendeskClient:
@@ -161,11 +186,14 @@ class ZendeskClient:
     def post_comment(self, ticket_id: int, comment: str, public: bool = True) -> str:
         """
         Post a comment to an existing ticket.
+
+        The comment is treated as Markdown (plain text is valid Markdown) and
+        rendered to HTML so newlines and formatting survive in Zendesk.
         """
         try:
             ticket = self.client.tickets(id=ticket_id)
             ticket.comment = Comment(
-                html_body=comment,
+                html_body=markdown_to_html(comment),
                 public=public
             )
             self.client.tickets.update(ticket)

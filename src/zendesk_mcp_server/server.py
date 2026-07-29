@@ -214,7 +214,7 @@ async def handle_list_tools() -> list[types.Tool]:
                     },
                     "comment": {
                         "type": "string",
-                        "description": "The comment text/content to add"
+                        "description": "The comment text. Markdown, plain text, and HTML are all accepted."
                     },
                     "public": {
                         "type": "boolean",
