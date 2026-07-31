@@ -36,10 +36,11 @@ def markdown_to_html(text: str) -> str:
 
 
 class ZendeskClient:
-    def __init__(self, subdomain: str, email: str, token: str):
+    def __init__(self, subdomain: str, email: str, token: str, locale: str):
         """
         Initialize the Zendesk client using zenpy lib and direct API.
         """
+        self.locale = locale
         self.client = Zenpy(
             subdomain=subdomain,
             email=email,
@@ -277,13 +278,16 @@ class ZendeskClient:
         Returns a Dict of section -> [article].
         """
         try:
-            # Get all sections
-            sections = self.client.help_center.sections()
+            # Get all sections for the configured locale
+            sections = self.client.help_center.sections(locale=self.locale)
 
             # Get articles for each section
             kb = {}
             for section in sections:
-                articles = self.client.help_center.sections.articles(section.id)
+                articles = self.client.help_center.sections.articles(
+                    section.id,
+                    locale=self.locale
+                )
                 kb[section.name] = {
                     'section_id': section.id,
                     'description': section.description,

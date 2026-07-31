@@ -17,6 +17,8 @@ This server provides a comprehensive integration with Zendesk. It offers:
 
 - build: `uv venv && uv pip install -e .` or `uv build` in short.
 - setup zendesk credentials in `.env` file, refer to [.env.example](.env.example).
+    - Configure the `ZENDESK_LOCALE` (default: `en-us`) to determine which language version of your Help Center articles are retrieved.
+
 - configure in Claude desktop:
 
 ```json
