@@ -1,3 +1,4 @@
+from datetime import datetime, timedelta, timezone
 from typing import Dict, Any, List
 import json
 import urllib.request
@@ -400,3 +401,81 @@ class ZendeskClient:
             }
         except Exception as e:
             raise Exception(f"Failed to update ticket {ticket_id}: {str(e)}")
+
+    def get_ticket_metrics(self, ticket_id: int) -> Dict[str, Any]:
+        """
+        Get performance/SLA metrics for a specific ticket.
+
+        Returns timing metrics like reply time, resolution time, wait times, etc.
+        """
+        try:
+            for metric in self.client.ticket_metrics():
+                if metric.ticket_id == ticket_id:
+                    return metric.to_dict()
+            raise Exception(f"No metrics found for ticket {ticket_id}")
+        except Exception as e:
+            raise Exception(f"Failed to get metrics for ticket {ticket_id}: {str(e)}")
+
+    def get_sla_breaches(
+        self,
+        days_back: int = 7,
+        metric: str | None = None,
+    ) -> Dict[str, Any]:
+        """
+        Find tickets that breached SLA within the specified time period.
+
+        Args:
+            days_back: Number of days to look back (default 7)
+            metric: Optional filter by metric type (reply_time, first_reply_time,
+                    agent_work_time, requester_wait_time, periodic_update_time)
+
+        Returns:
+            Dict containing list of breaches and summary stats
+        """
+        try:
+            start = datetime.now(timezone.utc) - timedelta(days=days_back)
+            breaches = []
+
+            for event in self.client.ticket_metric_events(start_time=start):
+                if event.type != 'breach':
+                    continue
+                if metric and event.metric != metric:
+                    continue
+
+                breaches.append({
+                    'ticket_id': event.ticket_id,
+                    'metric': event.metric,
+                    'time': str(event.time),
+                    'instance_id': event.instance_id,
+                })
+
+            # Group by ticket for summary
+            tickets_breached = set(b['ticket_id'] for b in breaches)
+            metrics_summary = {}
+            for b in breaches:
+                m = b['metric']
+                metrics_summary[m] = metrics_summary.get(m, 0) + 1
+
+            return {
+                'breaches': breaches,
+                'total_breaches': len(breaches),
+                'unique_tickets': len(tickets_breached),
+                'by_metric': metrics_summary,
+                'days_back': days_back,
+            }
+        except Exception as e:
+            raise Exception(f"Failed to get SLA breaches: {str(e)}")
+
+    def get_sla_policies(self) -> List[Dict[str, Any]]:
+        """
+        Get all SLA policies with their targets.
+
+        Returns a list of SLA policies including metric targets per priority level.
+        """
+        try:
+            policies = []
+            for policy in self.client.sla_policies():
+                policies.append(policy.to_dict())
+            return policies
+        except Exception as e:
+            raise Exception(f"Failed to get SLA policies: {str(e)}")

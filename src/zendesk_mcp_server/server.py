@@ -258,6 +258,55 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["ticket_id"]
             }
+        ),
+        types.Tool(
+            name="get_ticket_metrics",
+            description="Get performance/SLA metrics for a specific ticket (reply time, resolution time, wait times, etc.)",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "ticket_id": {
+                        "type": "integer",
+                        "description": "The ID of the ticket to get metrics for"
+                    }
+                },
+                "required": ["ticket_id"]
+            }
+        ),
+        types.Tool(
+            name="get_sla_breaches",
+            description="Find tickets that breached SLA within a specified time period",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "days_back": {
+                        "type": "integer",
+                        "description": "Number of days to look back (default 7)",
+                        "default": 7
+                    },
+                    "metric": {
+                        "type": "string",
+                        "description": "Optional filter by metric type",
+                        "enum": [
+                            "reply_time",
+                            "first_reply_time",
+                            "agent_work_time",
+                            "requester_wait_time",
+                            "periodic_update_time"
+                        ]
+                    }
+                },
+                "required": []
+            }
+        ),
+        types.Tool(
+            name="get_sla_policies",
+            description="Get all SLA policies with their metric targets per priority level",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
         )
     ]
 
@@ -365,6 +414,31 @@ async def handle_call_tool(
             return [types.TextContent(
                 type="text",
                 text=json.dumps({"message": "Ticket updated successfully", "ticket": updated}, indent=2)
+            )]
+
+        elif name == "get_ticket_metrics":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            metrics = zendesk_client.get_ticket_metrics(arguments["ticket_id"])
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(metrics, indent=2)
+            )]
+
+        elif name == "get_sla_breaches":
+            days_back = arguments.get("days_back", 7) if arguments else 7
+            metric = arguments.get("metric") if arguments else None
+            breaches = zendesk_client.get_sla_breaches(days_back=days_back, metric=metric)
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(breaches, indent=2)
+            )]
+
+        elif name == "get_sla_policies":
+            policies = zendesk_client.get_sla_policies()
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(policies, indent=2)
             )]
 
         else:
