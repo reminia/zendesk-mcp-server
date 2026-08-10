@@ -300,6 +300,73 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to fetch knowledge base: {str(e)}")
 
+    def get_user(self, user_id: int | None = None, email: str | None = None) -> Dict[str, Any]:
+        """
+        Fetch a Zendesk user by ID or email. Exactly one must be provided.
+
+        - user_id: resolve a requester_id / assignee_id from a ticket
+        - email: look up a user by their email address
+        """
+        if user_id is None and email is None:
+            raise ValueError("Either `user_id` or `email` must be provided.")
+        if user_id is not None and email is not None:
+            raise ValueError("Provide either `user_id` or `email`, not both.")
+
+        try:
+            if user_id is not None:
+                user = self.client.users(id=user_id)
+            else:
+                results = list(self.client.users.search(query=email))
+                if not results:
+                    raise ValueError(f"No user found with email '{email}'.")
+                user = results[0]
+
+            return {
+                'id': user.id,
+                'name': user.name,
+                'email': user.email,
+                'role': user.role,
+                'organization_id': user.organization_id,
+                'created_at': str(user.created_at),
+                'last_login_at': str(user.last_login_at),
+                'verified': user.verified,
+                'suspended': user.suspended,
+                'active': user.active,
+                'phone': user.phone,
+                'time_zone': user.time_zone,
+                'tags': list(getattr(user, 'tags', []) or []),
+                'notes': user.notes,
+            }
+        except (ValueError, TypeError):
+            raise
+        except Exception as e:
+            raise Exception(f"Failed to get user: {str(e)}")
+
+    def get_tickets_by_requester(self, user_id: int, limit: int = 100) -> List[Dict[str, Any]]:
+        """
+        Fetch all tickets requested by a given user ID.
+        Uses /api/v2/users/{user_id}/tickets/requested.json via zenpy.
+        """
+        try:
+            tickets = self.client.users.requested(user_id)
+            result = []
+            for ticket in tickets:
+                result.append({
+                    'id': ticket.id,
+                    'subject': ticket.subject,
+                    'description': ticket.description,
+                    'status': ticket.status,
+                    'priority': ticket.priority,
+                    'created_at': str(ticket.created_at),
+                    'updated_at': str(ticket.updated_at),
+                    'assignee_id': ticket.assignee_id,
+                })
+                if len(result) >= limit:
+                    break
+            return result
+        except Exception as e:
+            raise Exception(f"Failed to get tickets for user {user_id}: {str(e)}")
+
     def create_ticket(
         self,
         subject: str,
