@@ -262,6 +262,13 @@ async def handle_list_tools() -> list[types.Tool]:
     ]
 
 
+async def _run_sync(func, *args, **kwargs):
+    """Run a synchronous function in a thread to avoid blocking the event loop."""
+    import functools
+    call = functools.partial(func, *args, **kwargs)
+    return await asyncio.get_event_loop().run_in_executor(None, call)
+
+
 @server.call_tool()
 async def handle_call_tool(
         name: str,
@@ -272,7 +279,7 @@ async def handle_call_tool(
         if name == "get_ticket":
             if not arguments:
                 raise ValueError("Missing arguments")
-            ticket = zendesk_client.get_ticket(arguments["ticket_id"])
+            ticket = await _run_sync(zendesk_client.get_ticket, arguments["ticket_id"])
             return [types.TextContent(
                 type="text",
                 text=json.dumps(ticket)
@@ -281,7 +288,8 @@ async def handle_call_tool(
         elif name == "create_ticket":
             if not arguments:
                 raise ValueError("Missing arguments")
-            created = zendesk_client.create_ticket(
+            created = await _run_sync(
+                zendesk_client.create_ticket,
                 subject=arguments.get("subject"),
                 description=arguments.get("description"),
                 requester_id=arguments.get("requester_id"),
@@ -302,11 +310,12 @@ async def handle_call_tool(
             sort_by = arguments.get("sort_by", "created_at") if arguments else "created_at"
             sort_order = arguments.get("sort_order", "desc") if arguments else "desc"
 
-            tickets = zendesk_client.get_tickets(
+            tickets = await _run_sync(
+                zendesk_client.get_tickets,
                 page=page,
                 per_page=per_page,
                 sort_by=sort_by,
-                sort_order=sort_order
+                sort_order=sort_order,
             )
             return [types.TextContent(
                 type="text",
@@ -316,8 +325,10 @@ async def handle_call_tool(
         elif name == "get_ticket_comments":
             if not arguments:
                 raise ValueError("Missing arguments")
-            comments = zendesk_client.get_ticket_comments(
-                arguments["ticket_id"])
+            comments = await _run_sync(
+                zendesk_client.get_ticket_comments,
+                arguments["ticket_id"],
+            )
             return [types.TextContent(
                 type="text",
                 text=json.dumps(comments)
@@ -327,10 +338,11 @@ async def handle_call_tool(
             if not arguments:
                 raise ValueError("Missing arguments")
             public = arguments.get("public", True)
-            result = zendesk_client.post_comment(
+            result = await _run_sync(
+                zendesk_client.post_comment,
                 ticket_id=arguments["ticket_id"],
                 comment=arguments["comment"],
-                public=public
+                public=public,
             )
             return [types.TextContent(
                 type="text",
@@ -340,7 +352,10 @@ async def handle_call_tool(
         elif name == "get_ticket_attachment":
             if not arguments:
                 raise ValueError("Missing arguments")
-            result = zendesk_client.get_ticket_attachment(arguments["content_url"])
+            result = await _run_sync(
+                zendesk_client.get_ticket_attachment,
+                arguments["content_url"],
+            )
             content_type = result["content_type"]
             if content_type.startswith("image/"):
                 return [types.ImageContent(
@@ -361,7 +376,11 @@ async def handle_call_tool(
             if ticket_id is None:
                 raise ValueError("ticket_id is required")
             update_fields = {k: v for k, v in arguments.items() if k != "ticket_id"}
-            updated = zendesk_client.update_ticket(ticket_id=int(ticket_id), **update_fields)
+            updated = await _run_sync(
+                zendesk_client.update_ticket,
+                ticket_id=int(ticket_id),
+                **update_fields,
+            )
             return [types.TextContent(
                 type="text",
                 text=json.dumps({"message": "Ticket updated successfully", "ticket": updated}, indent=2)
@@ -371,6 +390,7 @@ async def handle_call_tool(
             raise ValueError(f"Unknown tool: {name}")
 
     except Exception as e:
+        logger.error(f"Tool {name} failed: {e}")
         return [types.TextContent(
             type="text",
             text=f"Error: {str(e)}"
@@ -408,7 +428,7 @@ async def handle_read_resource(uri: AnyUrl) -> str:
         raise ValueError(f"Unknown resource path: {path}")
 
     try:
-        kb_data = get_cached_kb()
+        kb_data = await _run_sync(get_cached_kb)
         return json.dumps({
             "knowledge_base": kb_data,
             "metadata": {
@@ -423,19 +443,24 @@ async def handle_read_resource(uri: AnyUrl) -> str:
 
 async def main():
     # Run the server using stdin/stdout streams
-    async with stdio_server() as (read_stream, write_stream):
-        await server.run(
-            read_stream=read_stream,
-            write_stream=write_stream,
-            initialization_options=InitializationOptions(
-                server_name="Zendesk",
-                server_version="0.1.0",
-                capabilities=server.get_capabilities(
-                    notification_options=NotificationOptions(),
-                    experimental_capabilities={},
+    try:
+        async with stdio_server() as (read_stream, write_stream):
+            logger.info("stdio transport connected, serving requests")
+            await server.run(
+                read_stream=read_stream,
+                write_stream=write_stream,
+                initialization_options=InitializationOptions(
+                    server_name="Zendesk",
+                    server_version="0.1.0",
+                    capabilities=server.get_capabilities(
+                        notification_options=NotificationOptions(),
+                        experimental_capabilities={},
+                    ),
                 ),
-            ),
-        )
+            )
+    except Exception as e:
+        logger.error(f"Server crashed: {e}", exc_info=True)
+        raise
 
 
 if __name__ == "__main__":
