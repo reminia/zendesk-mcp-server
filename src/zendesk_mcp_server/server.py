@@ -258,6 +258,45 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["ticket_id"]
             }
+        ),
+        types.Tool(
+            name="get_user",
+            description="Retrieve a Zendesk user by their ID",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "user_id": {
+                        "type": "integer",
+                        "description": "The ID of the user to retrieve"
+                    }
+                },
+                "required": ["user_id"]
+            }
+        ),
+        types.Tool(
+            name="get_users",
+            description="Fetch Zendesk users with pagination support and optional role filter",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "page": {
+                        "type": "integer",
+                        "description": "Page number",
+                        "default": 1
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "description": "Number of users per page (max 100)",
+                        "default": 25
+                    },
+                    "role": {
+                        "type": "string",
+                        "description": "Filter by user role (end-user, agent, admin)",
+                        "enum": ["end-user", "agent", "admin"]
+                    }
+                },
+                "required": []
+            }
         )
     ]
 
@@ -365,6 +404,25 @@ async def handle_call_tool(
             return [types.TextContent(
                 type="text",
                 text=json.dumps({"message": "Ticket updated successfully", "ticket": updated}, indent=2)
+            )]
+
+        elif name == "get_user":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            user = zendesk_client.get_user(arguments["user_id"])
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(user, indent=2)
+            )]
+
+        elif name == "get_users":
+            page = arguments.get("page", 1) if arguments else 1
+            per_page = arguments.get("per_page", 25) if arguments else 25
+            role = arguments.get("role") if arguments else None
+            users = zendesk_client.get_users(page=page, per_page=per_page, role=role)
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(users, indent=2)
             )]
 
         else:

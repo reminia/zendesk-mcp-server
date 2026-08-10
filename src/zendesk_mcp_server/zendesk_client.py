@@ -400,3 +400,81 @@ class ZendeskClient:
             }
         except Exception as e:
             raise Exception(f"Failed to update ticket {ticket_id}: {str(e)}")
+
+    def get_user(self, user_id: int) -> Dict[str, Any]:
+        """
+        Get a single user by ID.
+        """
+        try:
+            user = self.client.users(id=user_id)
+            return {
+                'id': user.id,
+                'name': user.name,
+                'email': user.email,
+                'role': user.role,
+                'active': user.active,
+                'verified': user.verified,
+                'organization_id': user.organization_id,
+                'created_at': str(user.created_at),
+                'updated_at': str(user.updated_at),
+            }
+        except Exception as e:
+            raise Exception(f"Failed to get user {user_id}: {str(e)}")
+
+    def get_users(self, page: int = 1, per_page: int = 25, role: str | None = None) -> Dict[str, Any]:
+        """
+        Get users with pagination using Zenpy.
+
+        Args:
+            page: Page number (1-based)
+            per_page: Number of users per page (max 100)
+            role: Optional filter by role (end-user, agent, admin)
+        """
+        try:
+            per_page = min(per_page, 100)
+
+            # Get users generator with optional role filter
+            if role:
+                users_generator = self.client.users(role=role)
+            else:
+                users_generator = self.client.users()
+
+            # Calculate skip count and collect results
+            skip = (page - 1) * per_page
+            user_list = []
+            skipped = 0
+            collected = 0
+
+            for user in users_generator:
+                if skipped < skip:
+                    skipped += 1
+                    continue
+                if collected >= per_page:
+                    # Found one more, so has_more is True
+                    has_more = True
+                    break
+                user_list.append({
+                    'id': user.id,
+                    'name': user.name,
+                    'email': user.email,
+                    'role': user.role,
+                    'active': user.active,
+                    'verified': user.verified,
+                    'organization_id': user.organization_id,
+                    'created_at': str(user.created_at),
+                    'updated_at': str(user.updated_at),
+                })
+                collected += 1
+            else:
+                has_more = False
+
+            return {
+                'users': user_list,
+                'page': page,
+                'per_page': per_page,
+                'count': len(user_list),
+                'has_more': has_more,
+                'next_page': page + 1 if has_more else None,
+            }
+        except Exception as e:
+            raise Exception(f"Failed to get users: {str(e)}")
