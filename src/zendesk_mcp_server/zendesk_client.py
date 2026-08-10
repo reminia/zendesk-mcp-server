@@ -201,7 +201,71 @@ class ZendeskClient:
         except Exception as e:
             raise Exception(f"Failed to post comment on ticket {ticket_id}: {str(e)}")
 
-    def get_tickets(self, page: int = 1, per_page: int = 25, sort_by: str = 'created_at', sort_order: str = 'desc') -> Dict[str, Any]:
+    def _search_tickets_by_status(self, status: str, page: int = 1, per_page: int = 25, sort_by: str = 'created_at', sort_order: str = 'desc') -> Dict[str, Any]:
+        """
+        Search tickets by status using the Zendesk Search API.
+
+        Args:
+            status: Status to filter by (new, open, pending, hold, solved, closed)
+            page: Page number (1-based)
+            per_page: Number of tickets per page (max 100)
+            sort_by: Field to sort by
+            sort_order: Sort order (asc or desc)
+
+        Returns:
+            Dict containing tickets and pagination info
+        """
+        # Build search query
+        query = f"type:ticket status:{status}"
+
+        params = {
+            'query': query,
+            'page': str(page),
+            'per_page': str(per_page),
+            'sort_by': sort_by,
+            'sort_order': sort_order
+        }
+        query_string = urllib.parse.urlencode(params)
+        url = f"{self.base_url}/search.json?{query_string}"
+
+        req = urllib.request.Request(url)
+        req.add_header('Authorization', self.auth_header)
+        req.add_header('Content-Type', 'application/json')
+
+        with urllib.request.urlopen(req) as response:
+            data = json.loads(response.read().decode())
+
+        results = data.get('results', [])
+
+        ticket_list = []
+        for ticket in results:
+            ticket_list.append({
+                'id': ticket.get('id'),
+                'subject': ticket.get('subject'),
+                'status': ticket.get('status'),
+                'priority': ticket.get('priority'),
+                'description': ticket.get('description'),
+                'created_at': ticket.get('created_at'),
+                'updated_at': ticket.get('updated_at'),
+                'requester_id': ticket.get('requester_id'),
+                'assignee_id': ticket.get('assignee_id')
+            })
+
+        return {
+            'tickets': ticket_list,
+            'page': page,
+            'per_page': per_page,
+            'count': len(ticket_list),
+            'total_count': data.get('count', len(ticket_list)),
+            'status_filter': status,
+            'sort_by': sort_by,
+            'sort_order': sort_order,
+            'has_more': data.get('next_page') is not None,
+            'next_page': page + 1 if data.get('next_page') else None,
+            'previous_page': page - 1 if data.get('previous_page') and page > 1 else None
+        }
+
+    def get_tickets(self, page: int = 1, per_page: int = 25, sort_by: str = 'created_at', sort_order: str = 'desc', view_id: int | None = None, status: str | None = None) -> Dict[str, Any]:
         """
         Get the latest tickets with proper pagination support using direct API calls.
 
@@ -210,6 +274,8 @@ class ZendeskClient:
             per_page: Number of tickets per page (max 100)
             sort_by: Field to sort by (created_at, updated_at, priority, status)
             sort_order: Sort order (asc or desc)
+            view_id: Optional view ID to filter tickets by a specific view
+            status: Optional status filter (new, open, pending, hold, solved, closed)
 
         Returns:
             Dict containing tickets and pagination info
@@ -217,6 +283,16 @@ class ZendeskClient:
         try:
             # Cap at reasonable limit
             per_page = min(per_page, 100)
+
+            # Use Search API if status filter is provided (and no view_id)
+            if status and not view_id:
+                return self._search_tickets_by_status(
+                    status=status,
+                    page=page,
+                    per_page=per_page,
+                    sort_by=sort_by,
+                    sort_order=sort_order
+                )
 
             # Build URL with parameters for offset pagination
             params = {
@@ -226,7 +302,11 @@ class ZendeskClient:
                 'sort_order': sort_order
             }
             query_string = urllib.parse.urlencode(params)
-            url = f"{self.base_url}/tickets.json?{query_string}"
+
+            if view_id:
+                url = f"{self.base_url}/views/{view_id}/tickets.json?{query_string}"
+            else:
+                url = f"{self.base_url}/tickets.json?{query_string}"
 
             # Create request with auth header
             req = urllib.request.Request(url)
@@ -361,6 +441,249 @@ class ZendeskClient:
             }
         except Exception as e:
             raise Exception(f"Failed to create ticket: {str(e)}")
+
+    def get_views(self, page: int = 1, per_page: int = 25) -> Dict[str, Any]:
+        """
+        Get the list of views with pagination support using direct API calls.
+
+        Args:
+            page: Page number (1-based)
+            per_page: Number of views per page (max 100)
+
+        Returns:
+            Dict containing views and pagination info
+        """
+        try:
+            per_page = min(per_page, 100)
+
+            params = {
+                'page': str(page),
+                'per_page': str(per_page)
+            }
+            query_string = urllib.parse.urlencode(params)
+            url = f"{self.base_url}/views.json?{query_string}"
+
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', self.auth_header)
+            req.add_header('Content-Type', 'application/json')
+
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+
+            views_data = data.get('views', [])
+
+            view_list = []
+            for view in views_data:
+                view_list.append({
+                    'id': view.get('id'),
+                    'title': view.get('title'),
+                    'active': view.get('active'),
+                    'position': view.get('position'),
+                    'restriction': view.get('restriction'),
+                    'created_at': view.get('created_at'),
+                    'updated_at': view.get('updated_at'),
+                })
+
+            return {
+                'views': view_list,
+                'page': page,
+                'per_page': per_page,
+                'count': len(view_list),
+                'has_more': data.get('next_page') is not None,
+                'next_page': page + 1 if data.get('next_page') else None,
+                'previous_page': page - 1 if data.get('previous_page') and page > 1 else None
+            }
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else "No response body"
+            raise Exception(f"Failed to get views: HTTP {e.code} - {e.reason}. {error_body}")
+        except Exception as e:
+            raise Exception(f"Failed to get views: {str(e)}")
+
+    def get_users(self, role: str | None = None, page: int = 1, per_page: int = 25) -> Dict[str, Any]:
+        """
+        Get users with optional role filter and pagination.
+
+        Args:
+            role: Optional role filter (agent, admin, end-user)
+            page: Page number (1-based)
+            per_page: Number of users per page (max 100)
+
+        Returns:
+            Dict containing users and pagination info
+        """
+        try:
+            per_page = min(per_page, 100)
+
+            params = {
+                'page': str(page),
+                'per_page': str(per_page)
+            }
+            if role:
+                params['role'] = role
+
+            query_string = urllib.parse.urlencode(params)
+            url = f"{self.base_url}/users.json?{query_string}"
+
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', self.auth_header)
+            req.add_header('Content-Type', 'application/json')
+
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+
+            users_data = data.get('users', [])
+
+            user_list = []
+            for user in users_data:
+                user_list.append({
+                    'id': user.get('id'),
+                    'name': user.get('name'),
+                    'email': user.get('email'),
+                    'role': user.get('role'),
+                    'active': user.get('active'),
+                    'created_at': user.get('created_at'),
+                    'updated_at': user.get('updated_at'),
+                })
+
+            return {
+                'users': user_list,
+                'page': page,
+                'per_page': per_page,
+                'count': len(user_list),
+                'role_filter': role,
+                'has_more': data.get('next_page') is not None,
+                'next_page': page + 1 if data.get('next_page') else None,
+                'previous_page': page - 1 if data.get('previous_page') and page > 1 else None
+            }
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else "No response body"
+            raise Exception(f"Failed to get users: HTTP {e.code} - {e.reason}. {error_body}")
+        except Exception as e:
+            raise Exception(f"Failed to get users: {str(e)}")
+
+    def get_ticket_fields(self) -> Dict[str, Any]:
+        """
+        Get all ticket fields (system and custom) with their options.
+
+        Returns:
+            Dict containing ticket fields and their options
+        """
+        try:
+            url = f"{self.base_url}/ticket_fields.json"
+
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', self.auth_header)
+            req.add_header('Content-Type', 'application/json')
+
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+
+            fields_data = data.get('ticket_fields', [])
+
+            field_list = []
+            for field in fields_data:
+                field_list.append({
+                    'id': field.get('id'),
+                    'type': field.get('type'),
+                    'title': field.get('title'),
+                    'description': field.get('description'),
+                    'active': field.get('active'),
+                    'required': field.get('required'),
+                    'custom_field_options': field.get('custom_field_options'),
+                    'system_field_options': field.get('system_field_options'),
+                })
+
+            return {
+                'ticket_fields': field_list,
+                'count': len(field_list)
+            }
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else "No response body"
+            raise Exception(f"Failed to get ticket fields: HTTP {e.code} - {e.reason}. {error_body}")
+        except Exception as e:
+            raise Exception(f"Failed to get ticket fields: {str(e)}")
+
+    def get_user_fields(self) -> Dict[str, Any]:
+        """
+        Get all custom user fields with their options.
+
+        Returns:
+            Dict containing user fields and their options
+        """
+        try:
+            url = f"{self.base_url}/user_fields.json"
+
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', self.auth_header)
+            req.add_header('Content-Type', 'application/json')
+
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+
+            fields_data = data.get('user_fields', [])
+
+            field_list = []
+            for field in fields_data:
+                field_list.append({
+                    'id': field.get('id'),
+                    'key': field.get('key'),
+                    'type': field.get('type'),
+                    'title': field.get('title'),
+                    'description': field.get('description'),
+                    'active': field.get('active'),
+                    'custom_field_options': field.get('custom_field_options'),
+                })
+
+            return {
+                'user_fields': field_list,
+                'count': len(field_list)
+            }
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else "No response body"
+            raise Exception(f"Failed to get user fields: HTTP {e.code} - {e.reason}. {error_body}")
+        except Exception as e:
+            raise Exception(f"Failed to get user fields: {str(e)}")
+
+    def get_organization_fields(self) -> Dict[str, Any]:
+        """
+        Get all custom organization fields with their options.
+
+        Returns:
+            Dict containing organization fields and their options
+        """
+        try:
+            url = f"{self.base_url}/organization_fields.json"
+
+            req = urllib.request.Request(url)
+            req.add_header('Authorization', self.auth_header)
+            req.add_header('Content-Type', 'application/json')
+
+            with urllib.request.urlopen(req) as response:
+                data = json.loads(response.read().decode())
+
+            fields_data = data.get('organization_fields', [])
+
+            field_list = []
+            for field in fields_data:
+                field_list.append({
+                    'id': field.get('id'),
+                    'key': field.get('key'),
+                    'type': field.get('type'),
+                    'title': field.get('title'),
+                    'description': field.get('description'),
+                    'active': field.get('active'),
+                    'custom_field_options': field.get('custom_field_options'),
+                })
+
+            return {
+                'organization_fields': field_list,
+                'count': len(field_list)
+            }
+        except urllib.error.HTTPError as e:
+            error_body = e.read().decode() if e.fp else "No response body"
+            raise Exception(f"Failed to get organization fields: HTTP {e.code} - {e.reason}. {error_body}")
+        except Exception as e:
+            raise Exception(f"Failed to get organization fields: {str(e)}")
 
     def update_ticket(self, ticket_id: int, **fields: Any) -> Dict[str, Any]:
         """

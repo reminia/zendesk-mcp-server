@@ -160,7 +160,7 @@ async def handle_list_tools() -> list[types.Tool]:
         ),
         types.Tool(
             name="get_tickets",
-            description="Fetch the latest tickets with pagination support",
+            description="Fetch the latest tickets with pagination support. Optionally filter by a specific view or status.",
             inputSchema={
                 "type": "object",
                 "properties": {
@@ -183,6 +183,14 @@ async def handle_list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": "Sort order (asc or desc)",
                         "default": "desc"
+                    },
+                    "view_id": {
+                        "type": "integer",
+                        "description": "Optional view ID to filter tickets by a specific view"
+                    },
+                    "status": {
+                        "type": "string",
+                        "description": "Optional status filter (new, open, pending, hold, solved, closed)"
                     }
                 },
                 "required": []
@@ -258,6 +266,77 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["ticket_id"]
             }
+        ),
+        types.Tool(
+            name="list_views",
+            description="List all Zendesk views with pagination support",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "page": {
+                        "type": "integer",
+                        "description": "Page number",
+                        "default": 1
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "description": "Number of views per page (max 100)",
+                        "default": 25
+                    }
+                },
+                "required": []
+            }
+        ),
+        types.Tool(
+            name="list_users",
+            description="List Zendesk users with optional role filter. Use role='agent' or role='admin' to list team members.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "role": {
+                        "type": "string",
+                        "description": "Filter by role: agent, admin, or end-user"
+                    },
+                    "page": {
+                        "type": "integer",
+                        "description": "Page number",
+                        "default": 1
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "description": "Number of users per page (max 100)",
+                        "default": 25
+                    }
+                },
+                "required": []
+            }
+        ),
+        types.Tool(
+            name="list_ticket_fields",
+            description="List all ticket fields (system and custom) with their options",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
+        types.Tool(
+            name="list_user_fields",
+            description="List all custom user fields with their options",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
+        ),
+        types.Tool(
+            name="list_organization_fields",
+            description="List all custom organization fields with their options",
+            inputSchema={
+                "type": "object",
+                "properties": {},
+                "required": []
+            }
         )
     ]
 
@@ -301,12 +380,16 @@ async def handle_call_tool(
             per_page = arguments.get("per_page", 25) if arguments else 25
             sort_by = arguments.get("sort_by", "created_at") if arguments else "created_at"
             sort_order = arguments.get("sort_order", "desc") if arguments else "desc"
+            view_id = arguments.get("view_id") if arguments else None
+            status = arguments.get("status") if arguments else None
 
             tickets = zendesk_client.get_tickets(
                 page=page,
                 per_page=per_page,
                 sort_by=sort_by,
-                sort_order=sort_order
+                sort_order=sort_order,
+                view_id=view_id,
+                status=status
             )
             return [types.TextContent(
                 type="text",
@@ -365,6 +448,48 @@ async def handle_call_tool(
             return [types.TextContent(
                 type="text",
                 text=json.dumps({"message": "Ticket updated successfully", "ticket": updated}, indent=2)
+            )]
+
+        elif name == "list_views":
+            page = arguments.get("page", 1) if arguments else 1
+            per_page = arguments.get("per_page", 25) if arguments else 25
+
+            views = zendesk_client.get_views(page=page, per_page=per_page)
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(views, indent=2)
+            )]
+
+        elif name == "list_users":
+            role = arguments.get("role") if arguments else None
+            page = arguments.get("page", 1) if arguments else 1
+            per_page = arguments.get("per_page", 25) if arguments else 25
+
+            users = zendesk_client.get_users(role=role, page=page, per_page=per_page)
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(users, indent=2)
+            )]
+
+        elif name == "list_ticket_fields":
+            fields = zendesk_client.get_ticket_fields()
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(fields, indent=2)
+            )]
+
+        elif name == "list_user_fields":
+            fields = zendesk_client.get_user_fields()
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(fields, indent=2)
+            )]
+
+        elif name == "list_organization_fields":
+            fields = zendesk_client.get_organization_fields()
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(fields, indent=2)
             )]
 
         else:
