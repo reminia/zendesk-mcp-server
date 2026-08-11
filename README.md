@@ -180,7 +180,9 @@ Relative ranges include `this_week`, `last_7_days`, `last_30_days`, and
 `this_month`.
 
 Use `count_only=true` to validate a filter before retrieving ticket data. The
-response always includes the resolved Zendesk query for auditability.
+response always includes the resolved Zendesk query for auditability. Zendesk's
+standard Search API exposes at most 1,000 results; narrow broad filters before
+paginating beyond that boundary.
 
 ### get_ticket_digests
 

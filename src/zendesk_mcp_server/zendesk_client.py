@@ -277,6 +277,12 @@ class ZendeskClient:
             raise ValueError("sort_order must be asc or desc")
         page = max(1, int(page))
         per_page = min(max(1, int(per_page)), 100)
+        result_offset = (page - 1) * per_page
+        if result_offset >= 1000:
+            raise ValueError(
+                "Zendesk Search API exposes only the first 1,000 results. "
+                "Narrow the filters or use the Search Export API."
+            )
 
         data = self._request_json(
             'search.json',
@@ -308,14 +314,19 @@ class ZendeskClient:
             for ticket in data.get('results', [])
             if ticket.get('result_type', 'ticket') == 'ticket'
         ]
+        has_more = (
+            data.get('next_page') is not None
+            and result_offset + len(tickets) < 1000
+        )
         return {
             'query': query,
             'count': data.get('count', len(tickets)),
             'tickets': tickets,
             'page': page,
             'per_page': per_page,
-            'has_more': data.get('next_page') is not None,
-            'next_page': page + 1 if data.get('next_page') else None,
+            'result_ceiling': 1000,
+            'has_more': has_more,
+            'next_page': page + 1 if has_more else None,
         }
 
     @ttl_cache(ttl=3600)
@@ -352,7 +363,7 @@ class ZendeskClient:
         term = term.strip()
         if len(term) < 2:
             raise ValueError("Tag discovery term must contain at least 2 characters")
-        limit = min(max(1, int(limit)), 25)
+        limit = min(max(1, int(limit)), 15)
         data = self._request_json(
             'autocomplete/tags.json',
             {'name': term, 'per_page': limit}
@@ -432,6 +443,7 @@ class ZendeskClient:
             limit: int = 10
     ) -> Dict[str, Any]:
         """Discover account-backed filter values for a vague user term."""
+        limit = min(max(1, int(limit)), 15)
         requested = set(dimensions or ['tags', 'organizations', 'groups', 'severity'])
         allowed = {'tags', 'organizations', 'groups', 'severity', 'priority', 'status'}
         unknown = requested - allowed
@@ -457,7 +469,12 @@ class ZendeskClient:
             ][:limit]
         if 'severity' in requested:
             severity_tags: Dict[str, Dict[str, Any]] = {}
-            for prefix in ('sev', 'severity', 'p1', 's1'):
+            prefixes = [
+                'sev', 'severity',
+                *(f'p{level}' for level in range(1, 6)),
+                *(f's{level}' for level in range(1, 6)),
+            ]
+            for prefix in prefixes:
                 for item in self.autocomplete_tags(prefix, limit):
                     name = item['name'].lower()
                     if re.search(r'(?:^|[_-])(sev(?:erity)?|p|s)[_-]?[0-5](?:$|[_-])', name):

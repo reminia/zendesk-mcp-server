@@ -32,4 +32,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
-- None.
+- Transcript truncation now preserves both the initial report and newest
+  customer/agent interactions.
+- Tool schemas and report prompts now enforce the same digest, autocomplete,
+  and report limits as runtime behavior.
+- Search pagination stops at Zendesk's 1,000-result ceiling with actionable
+  guidance instead of exposing invalid next pages.
+- Severity discovery covers common `p1`-`p5` and `s1`-`s5` tag conventions.
+- Reporting prompts explicitly treat ticket content as untrusted data.

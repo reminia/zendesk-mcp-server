@@ -18,6 +18,34 @@ def _truncate(text: str, max_chars: int) -> str:
     return f"{clipped or text[:max_chars].rstrip()}…"
 
 
+def _truncate_transcript(lines: List[str], max_chars: int) -> str:
+    """Fit a transcript while retaining the first and newest interactions."""
+    transcript = '\n'.join(lines)
+    if max_chars <= 0 or len(transcript) <= max_chars:
+        return transcript
+    if len(lines) <= 1:
+        return _truncate(transcript, max_chars)
+
+    marker = '\n[... middle comments omitted ...]\n'
+    available = max(1, max_chars - len(marker))
+    first_budget = min(len(lines[0]), max(1, available // 3))
+    first = _truncate(lines[0], first_budget)
+    tail_budget = max(1, available - len(first))
+    tail: List[str] = []
+
+    for line in reversed(lines[1:]):
+        separator_cost = 1 if tail else 0
+        if len(line) + separator_cost <= tail_budget:
+            tail.insert(0, line)
+            tail_budget -= len(line) + separator_cost
+            continue
+        if not tail and tail_budget > 1:
+            tail.insert(0, _truncate(line, tail_budget))
+        break
+
+    return f"{first}{marker}{'\n'.join(tail)}"[:max_chars]
+
+
 def clean_comment_body(text: str | None, max_chars: int = 0) -> str:
     """Remove quoted email history and signatures from a Zendesk comment."""
     if not text:
@@ -81,7 +109,7 @@ def build_transcript(
         created_at = comment.get('created_at') or 'unknown time'
         lines.append(f"[{created_at}] {role} ({name}): {body}")
 
-    return _truncate('\n'.join(lines), max_chars)
+    return _truncate_transcript(lines, max_chars)
 
 
 def _metric_number(value: Any) -> float:
@@ -124,7 +152,9 @@ def score_service_risk(
     if wait_minutes >= 24 * 60:
         score += 15
         wait_days = wait_minutes / (24 * 60)
-        reasons.append(f"customer waited {wait_days:.1f} days for replies")
+        reasons.append(
+            f"accumulated requester wait time was {wait_days:.1f} days"
+        )
 
     escalation_tags = {
         'escalated', 'escalation', 'complaint', 'churn_risk', 'churn-risk'
