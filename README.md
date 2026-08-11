@@ -7,9 +7,10 @@ A Model Context Protocol server for Zendesk.
 
 This server provides a comprehensive integration with Zendesk. It offers:
 
-- Tools for retrieving and managing Zendesk tickets and comments
-- Specialized prompts for ticket analysis and response drafting
-- Full access to the Zendesk Help Center articles as knowledge base
+- Tools for retrieving, filtering, and summarizing Zendesk tickets
+- Grounded filter discovery using real tags, organizations, and groups
+- Priority and customer-support sentiment report prompts
+- Zendesk Help Center and filter-vocabulary resources
 
 ![demo](https://res.cloudinary.com/leecy-me/image/upload/v1736410626/open/zendesk_yunczu.gif)
 
@@ -83,12 +84,46 @@ Adjust the paths to match your environment. After saving the file, restart Claud
 ## Resources
 
 - zendesk://knowledge-base, get access to the whole help center articles.
+- zendesk://filter-vocabulary, get the top 200 recent tags with ticket counts,
+  active groups, valid priorities/statuses, and detected severity conventions.
 
 ## Prompts
 
 ### analyze-ticket
 
 Analyze a Zendesk ticket and provide a detailed analysis of the ticket.
+
+### find-tickets
+
+Turn an ad-hoc request into grounded Zendesk filters. The prompt discovers real
+account values, asks one consolidated clarification question when necessary,
+previews the result count, and reports the final query.
+
+Example: `Find urgent database tickets for Acme this month.` If `database` or
+`Acme` has multiple real matches, the client presents those candidates before
+searching rather than inventing a tag.
+
+### analyze-ticket-sentiment
+
+Fetch a clean public ticket transcript and classify the customer's sentiment
+toward support. The rubric weights agent communication and helpfulness at 70%
+and perceived issue progress at 30%.
+
+### ticket-report
+
+Create a priority-grouped report for a topic, date range, and group. Each ticket
+shows the original report, current state, age, owner, latest interactions, and
+recommended next action.
+
+Example: `Use ticket-report for Kafka, this_week, and the Platform Support group.`
+
+### unhappy-customers-report
+
+Triage tickets using objective service metrics, fetch full transcripts only for
+the riskiest candidates, and report customers whose negative sentiment is aimed
+at the support experience rather than only the product problem.
+
+Example: `Use unhappy-customers-report for Postgres over last_30_days.`
 
 ## Tools
 
@@ -124,3 +159,33 @@ Fetch a Zendesk ticket attachment by its content_url and return the file as base
 
 - Input:
   - `content_url` (string): The content_url of the attachment from `get_ticket_comments`
+
+### discover_filters
+
+Discover real tags (with ticket counts), organizations, groups, and severity
+tags for a partial term. Call this before filtering on a value that is not
+already known exactly.
+
+- Input:
+  - `term` (string): Partial service, tag, organization, or group name
+  - `dimensions` (array, optional): `tags`, `organizations`, `groups`,
+    `severity`, `priority`, and/or `status`
+  - `limit` (integer, optional): Maximum candidates per dimension
+
+### search_tickets
+
+Search through Zendesk's native Search API by tags, created/updated dates,
+priority, status, group, assignee, organization, satisfaction, or text.
+Relative ranges include `this_week`, `last_7_days`, `last_30_days`, and
+`this_month`.
+
+Use `count_only=true` to validate a filter before retrieving ticket data. The
+response always includes the resolved Zendesk query for auditability.
+
+### get_ticket_digests
+
+Return compact factual summaries for up to 25 ticket IDs. `detail=summary`
+includes the customer report, current state, latest interactions, metrics, and
+objective service-risk signals. `detail=transcript` supports up to 10 tickets
+and adds a cleaned, role-labelled public conversation for sentiment analysis.
+Internal notes are excluded by default.
