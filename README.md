@@ -75,6 +75,13 @@ ZENDESK_CLIENT_ID=your-client-identifier
 
 Keep `.env` out of version control.
 
+Two optional settings, both of which must agree with the OAuth client:
+
+| Variable | Default | When to change it |
+| --- | --- | --- |
+| `ZENDESK_OAUTH_REDIRECT_URI` | `http://localhost:4567/callback` | Port 4567 is in use, or the client is registered with a different redirect URL. Must match a redirect URL on the client exactly. |
+| `ZENDESK_TOKEN_FILE` | `$XDG_CONFIG_HOME/zendesk-mcp/tokens.json` | Storing tokens elsewhere, for example a Docker volume. |
+
 ### 3. Authorize this machine, once
 
 ```bash
@@ -166,7 +173,7 @@ OAuth fixes.
 > is for operators to have exactly their own Zendesk permissions, the
 > authorization code flow is the only one that fits.
 
-### Docker
+## Docker
 
 You can containerize the server if you prefer an isolated runtime:
 
@@ -204,7 +211,7 @@ You can containerize the server if you prefer an isolated runtime:
 
 The image installs dependencies from `requirements.lock` and drops privileges to a non-root user. With API token authentication no volume is needed, since configuration comes entirely from environment variables.
 
-#### Claude MCP Integration
+### Claude MCP Integration
 
 To use the Dockerized server from Claude Code/Desktop, add an entry to Claude Code's `settings.json` similar to:
 
