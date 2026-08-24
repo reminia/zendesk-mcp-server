@@ -1,7 +1,6 @@
 import asyncio
 import json
 import logging
-import os
 from typing import Any, Dict
 
 from cachetools.func import ttl_cache
@@ -11,6 +10,7 @@ from mcp.server import Server, types
 from mcp.server.stdio import stdio_server
 from pydantic import AnyUrl
 
+from zendesk_mcp_server.factory import build_client
 from zendesk_mcp_server.zendesk_client import ZendeskClient
 
 logging.basicConfig(
@@ -22,11 +22,22 @@ logger = logging.getLogger("zendesk-mcp-server")
 logger.info("zendesk mcp server started")
 
 load_dotenv()
-zendesk_client = ZendeskClient(
-    subdomain=os.getenv("ZENDESK_SUBDOMAIN"),
-    email=os.getenv("ZENDESK_EMAIL"),
-    token=os.getenv("ZENDESK_API_KEY")
-)
+
+_zendesk_client: ZendeskClient | None = None
+
+
+def get_zendesk_client() -> ZendeskClient:
+    """
+    Return the shared client, building it on first use.
+
+    Construction is deferred rather than done at import time so that a
+    configuration problem surfaces as a tool error the MCP client can display,
+    instead of preventing the module from being imported at all.
+    """
+    global _zendesk_client
+    if _zendesk_client is None:
+        _zendesk_client = build_client()
+    return _zendesk_client
 
 server = Server("Zendesk Server")
 
@@ -272,7 +283,7 @@ async def handle_call_tool(
         if name == "get_ticket":
             if not arguments:
                 raise ValueError("Missing arguments")
-            ticket = zendesk_client.get_ticket(arguments["ticket_id"])
+            ticket = get_zendesk_client().get_ticket(arguments["ticket_id"])
             return [types.TextContent(
                 type="text",
                 text=json.dumps(ticket)
@@ -281,7 +292,7 @@ async def handle_call_tool(
         elif name == "create_ticket":
             if not arguments:
                 raise ValueError("Missing arguments")
-            created = zendesk_client.create_ticket(
+            created = get_zendesk_client().create_ticket(
                 subject=arguments.get("subject"),
                 description=arguments.get("description"),
                 requester_id=arguments.get("requester_id"),
@@ -302,7 +313,7 @@ async def handle_call_tool(
             sort_by = arguments.get("sort_by", "created_at") if arguments else "created_at"
             sort_order = arguments.get("sort_order", "desc") if arguments else "desc"
 
-            tickets = zendesk_client.get_tickets(
+            tickets = get_zendesk_client().get_tickets(
                 page=page,
                 per_page=per_page,
                 sort_by=sort_by,
@@ -316,8 +327,7 @@ async def handle_call_tool(
         elif name == "get_ticket_comments":
             if not arguments:
                 raise ValueError("Missing arguments")
-            comments = zendesk_client.get_ticket_comments(
-                arguments["ticket_id"])
+            comments = get_zendesk_client().get_ticket_comments(arguments["ticket_id"])
             return [types.TextContent(
                 type="text",
                 text=json.dumps(comments)
@@ -327,7 +337,7 @@ async def handle_call_tool(
             if not arguments:
                 raise ValueError("Missing arguments")
             public = arguments.get("public", True)
-            result = zendesk_client.post_comment(
+            result = get_zendesk_client().post_comment(
                 ticket_id=arguments["ticket_id"],
                 comment=arguments["comment"],
                 public=public
@@ -340,7 +350,7 @@ async def handle_call_tool(
         elif name == "get_ticket_attachment":
             if not arguments:
                 raise ValueError("Missing arguments")
-            result = zendesk_client.get_ticket_attachment(arguments["content_url"])
+            result = get_zendesk_client().get_ticket_attachment(arguments["content_url"])
             content_type = result["content_type"]
             if content_type.startswith("image/"):
                 return [types.ImageContent(
@@ -361,7 +371,7 @@ async def handle_call_tool(
             if ticket_id is None:
                 raise ValueError("ticket_id is required")
             update_fields = {k: v for k, v in arguments.items() if k != "ticket_id"}
-            updated = zendesk_client.update_ticket(ticket_id=int(ticket_id), **update_fields)
+            updated = get_zendesk_client().update_ticket(ticket_id=int(ticket_id), **update_fields)
             return [types.TextContent(
                 type="text",
                 text=json.dumps({"message": "Ticket updated successfully", "ticket": updated}, indent=2)
@@ -392,7 +402,7 @@ async def handle_list_resources() -> list[types.Resource]:
 
 @ttl_cache(ttl=3600)
 def get_cached_kb():
-    return zendesk_client.get_all_articles()
+    return get_zendesk_client().get_all_articles()
 
 
 @server.read_resource()
