@@ -328,3 +328,25 @@ Update fields on an existing Zendesk ticket (e.g., status, priority, assignee)
   - `tags` (array[string], optional)
   - `custom_fields` (array[object], optional)
   - `due_at` (string, optional): ISO8601 datetime
+
+### search_articles
+
+Search Zendesk help center articles by query string
+
+- Input:
+  - `query` (string): Search query string to find relevant articles
+  - `locale` (string, optional): Locale filter (e.g., 'en-us', 'fr', 'es')
+  - `per_page` (integer, optional): Number of results per page, max 100 (defaults to 25)
+  - `page` (integer, optional): Page number (defaults to 1)
+
+- Output: Returns matching articles with id, title, body, author_id, section_id, locale, html_url, timestamps, and draft status, along with pagination metadata
+
+### get_article
+
+Get a specific Zendesk help center article by its ID
+
+- Input:
+  - `article_id` (integer): The ID of the article to retrieve
+  - `locale` (string, optional): Locale (e.g., 'en-us', 'fr', 'es')
+
+- Output: Returns detailed article information including id, title, body, author_id, section_id, locale, html_url, timestamps, draft/promoted status, position, voting statistics, and label names

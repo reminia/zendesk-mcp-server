@@ -269,6 +269,52 @@ async def handle_list_tools() -> list[types.Tool]:
                 },
                 "required": ["ticket_id"]
             }
+        ),
+        types.Tool(
+            name="search_articles",
+            description="Search Zendesk help center articles by query string",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Search query string to find relevant articles"
+                    },
+                    "locale": {
+                        "type": "string",
+                        "description": "Optional locale filter (e.g., 'en-us', 'fr', 'es')"
+                    },
+                    "per_page": {
+                        "type": "integer",
+                        "description": "Number of results per page (max 100)",
+                        "default": 25
+                    },
+                    "page": {
+                        "type": "integer",
+                        "description": "Page number (1-based)",
+                        "default": 1
+                    }
+                },
+                "required": ["query"]
+            }
+        ),
+        types.Tool(
+            name="get_article",
+            description="Get a specific Zendesk help center article by its ID",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "article_id": {
+                        "type": "integer",
+                        "description": "The ID of the article to retrieve"
+                    },
+                    "locale": {
+                        "type": "string",
+                        "description": "Optional locale (e.g., 'en-us', 'fr', 'es')"
+                    }
+                },
+                "required": ["article_id"]
+            }
         )
     ]
 
@@ -375,6 +421,40 @@ async def handle_call_tool(
             return [types.TextContent(
                 type="text",
                 text=json.dumps({"message": "Ticket updated successfully", "ticket": updated}, indent=2)
+            )]
+
+        elif name == "search_articles":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            query = arguments.get("query")
+            if not query:
+                raise ValueError("query is required")
+
+            results = zendesk_client.search_articles(
+                query=query,
+                locale=arguments.get("locale"),
+                per_page=arguments.get("per_page", 25),
+                page=arguments.get("page", 1)
+            )
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(results, indent=2)
+            )]
+
+        elif name == "get_article":
+            if not arguments:
+                raise ValueError("Missing arguments")
+            article_id = arguments.get("article_id")
+            if not article_id:
+                raise ValueError("article_id is required")
+
+            article = zendesk_client.get_article(
+                article_id=int(article_id),
+                locale=arguments.get("locale")
+            )
+            return [types.TextContent(
+                type="text",
+                text=json.dumps(article, indent=2)
             )]
 
         else:
