@@ -6,9 +6,12 @@ import base64
 import requests as _requests
 
 from markdown_it import MarkdownIt
+from requests.adapters import HTTPAdapter
 from zenpy import Zenpy
 from zenpy.lib.api_objects import Comment
 from zenpy.lib.api_objects import Ticket as ZenpyTicket
+
+from zendesk_mcp_server.auth import ApiTokenAuthProvider, AuthProvider
 
 # CommonMark renderer used for ticket comments.
 #   breaks=True -> a single newline becomes <br>, so plain text and
@@ -36,25 +39,66 @@ def markdown_to_html(text: str) -> str:
 
 
 class ZendeskClient:
-    def __init__(self, subdomain: str, email: str, token: str):
+    def __init__(
+        self,
+        subdomain: str,
+        email: str | None = None,
+        token: str | None = None,
+        auth: AuthProvider | None = None,
+    ):
         """
         Initialize the Zendesk client using zenpy lib and direct API.
+
+        Authentication is supplied by an AuthProvider. Passing ``email`` and
+        ``token`` instead selects deprecated API-token authentication and is
+        retained for backwards compatibility.
+
+        The provider is attached to a single requests Session that is shared
+        with zenpy. Because requests invokes a session's auth callable on every
+        request, credentials that expire (OAuth) are refreshed transparently for
+        zenpy calls and direct calls alike.
         """
-        self.client = Zenpy(
-            subdomain=subdomain,
-            email=email,
-            token=token
-        )
+        if auth is None:
+            auth = ApiTokenAuthProvider(email=email, token=token)
+        self.auth = auth
+
+        self.session = self._build_session(auth)
+        # zenpy skips its own authentication when the session it is handed
+        # reports being already authorized, which leaves our provider in charge.
+        self.client = Zenpy(subdomain=subdomain, session=self.session)
 
         # For direct API calls
         self.subdomain = subdomain
+        self.base_url = f"https://{subdomain}.zendesk.com/api/v2"
+        # Retained for backwards compatibility. Both are None under OAuth, where
+        # there is no email/token pair.
         self.email = email
         self.token = token
-        self.base_url = f"https://{subdomain}.zendesk.com/api/v2"
-        # Create basic auth header
-        credentials = f"{email}/token:{token}"
-        encoded_credentials = base64.b64encode(credentials.encode()).decode('ascii')
-        self.auth_header = f"Basic {encoded_credentials}"
+
+    @staticmethod
+    def _build_session(auth: AuthProvider) -> _requests.Session:
+        session = _requests.Session()
+        # zenpy only mounts its retrying adapter on sessions it creates itself,
+        # so mount it here to keep the same retry behaviour.
+        session.mount("https://", HTTPAdapter(**Zenpy.http_adapter_kwargs()))
+        session.auth = auth
+        session.authorized = True
+        # Providers holding expiring credentials opt into retrying a request once
+        # after the credential is rejected mid-flight.
+        response_hook = getattr(auth, "response_hook", None)
+        if response_hook is not None:
+            session.hooks["response"].append(response_hook)
+        return session
+
+    @property
+    def auth_header(self) -> str:
+        """
+        Current Authorization header value.
+
+        Read through the provider on every access rather than cached once, so a
+        rotated OAuth token is picked up.
+        """
+        return self.auth.auth_header()
 
     def get_ticket(self, ticket_id: int) -> Dict[str, Any]:
         """
@@ -133,11 +177,12 @@ class ZendeskClient:
         Zendesk attachment URLs redirect to zdusercontent.com (Zendesk's CDN).
         requests strips the Authorization header on cross-origin redirects,
         which is required — the CDN returns 403 if it receives an auth header.
+        The session's auth callable is applied when the request is prepared and
+        is not reapplied by requests on redirect, so this still holds.
         """
         try:
-            response = _requests.get(
+            response = self.session.get(
                 content_url,
-                headers={'Authorization': self.auth_header},
                 timeout=30,
                 stream=True,
             )

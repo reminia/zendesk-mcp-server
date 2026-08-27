@@ -5,10 +5,17 @@ description = "A simple Zendesk MCP server"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "filelock>=3.16.1",
     "markdown-it-py>=3.0.0",
     "mcp>=1.1.2",
     "python-dotenv>=1.0.1",
     "zenpy>=2.0.56",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3.4",
+    "responses>=0.25.3",
 ]
 
 [build-system]
@@ -17,3 +24,7 @@ build-backend = "hatchling.build"
 
 [project.scripts]
 zendesk = "zendesk_mcp_server:main"
+zendesk-auth = "zendesk_mcp_server.auth_cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
