@@ -11,6 +11,7 @@ from mcp.server.stdio import stdio_server
 from pydantic import AnyUrl
 
 from zendesk_mcp_server.factory import build_client
+from zendesk_mcp_server.gcf_output import apply_gcf, gcf_enabled
 from zendesk_mcp_server.zendesk_client import ZendeskClient
 
 logging.basicConfig(
@@ -275,6 +276,16 @@ async def handle_list_tools() -> list[types.Tool]:
 
 @server.call_tool()
 async def handle_call_tool(
+        name: str,
+        arguments: dict[str, Any] | None
+) -> list[types.TextContent]:
+    """Handle a tool call and, when ``ZENDESK_OUTPUT_FORMAT=gcf``, re-encode each
+    text result as GCF when it is smaller and lossless (otherwise the JSON is kept)."""
+    results = await _dispatch_tool(name, arguments)
+    return apply_gcf(results) if gcf_enabled() else results
+
+
+async def _dispatch_tool(
         name: str,
         arguments: dict[str, Any] | None
 ) -> list[types.TextContent]:
