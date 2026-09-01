@@ -328,3 +328,17 @@ Update fields on an existing Zendesk ticket (e.g., status, priority, assignee)
   - `tags` (array[string], optional)
   - `custom_fields` (array[object], optional)
   - `due_at` (string, optional): ISO8601 datetime
+
+## Output format (GCF)
+
+By default the tools return JSON. Setting `ZENDESK_OUTPUT_FORMAT=gcf` makes the server
+return [GCF (Graph Compact Format)](https://gcformat.com) instead for the record-array
+results (tickets, comments, search): the repeated field names JSON puts on every record
+are factored into a single header, cutting the token cost of a result by roughly a quarter
+to a half depending on shape, so a model reading the result spends fewer tokens on it.
+
+It is opt-in and conservative, applied per result: a result is re-encoded only when the GCF
+wire is both smaller than the JSON and decodes back to exactly the same value, and otherwise
+the JSON is returned unchanged. Non-JSON text (error messages, attachment blobs) is left
+untouched. `gcf-python` is MIT-licensed and has no runtime dependencies beyond the standard
+library.
